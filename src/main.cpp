@@ -5,11 +5,15 @@ const int stepPin = 15;
 const int dirPin = 4;
 const int frequenciaMotor = 20;
 
+const int ir = 14;
+
 void loop0(void * parament);
 void loop1(void * parament);
 
 void ligar_esteira();
 void desligar_esteira();
+
+bool leituraIR();
 
 void setup() {
   Serial.begin(115200);
@@ -41,6 +45,8 @@ void setup() {
   ledcSetup(0, frequenciaMotor, 8);
   ledcAttachPin(stepPin, 0);
 
+  pinMode(ir, INPUT);
+
 }
 
 void loop() {
@@ -55,13 +61,16 @@ void loop() {
 ● Tratamento das interrupções;
 ● Sincronização temporal do sistema.*/
 
-void loop0(void * parament) {
+void loop0(void * parameter) {
   Serial.println("Task0");
   while(true) {
-    ligar_esteira();
-    delay(3000);
-    desligar_esteira();
-    delay(3000);
+    if(leituraIR() == true){
+      desligar_esteira();
+    }
+    else{
+      ligar_esteira();
+    }
+    
   }
 }
 
@@ -75,7 +84,7 @@ void loop0(void * parament) {
 ● Armazenamento de dados;
 ● Supervisão geral do sistema.*/
 
-void loop1(void * parament) {
+void loop1(void * parameter) {
   Serial.println("Task1");
   while(true) {
 
@@ -90,4 +99,14 @@ void ligar_esteira(){
 void desligar_esteira(){
   digitalWrite(dirPin, LOW);
   ledcWrite(0, 0);
+}
+
+bool leituraIR(){
+  int estadoIR = digitalRead(ir);
+  if(estadoIR == LOW){
+    return true;
+  }
+  else{
+    return false;
+  }
 }
