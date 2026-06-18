@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
+#include <HCSR04.h>
 
 const int stepPin = 15;
 const int dirPin = 4;
