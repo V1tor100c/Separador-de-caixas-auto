@@ -6,37 +6,64 @@ const int stepPin = 15;
 const int dirPin = 4;
 const int frequenciaMotor = 20;
 
+const int pino_trigger = 5;
+const int pino_echo = 2;
+UltraSonicDistanceSensor distanceSensor(pino_trigger, pino_echo);
+
 const int ir = 14;
 
-void loop0(void * parament);
-void loop1(void * parament);
+const int botaoEmergencia = 12;
+
+int medidaSemCaixa = 15;
+int medidaCaixaG = 12;
+int medidaCaixaM = 10;
+int medidaCaixaP = 8;
+
+int quantidadeCaixasP = 0;
+int quantidadeCaixasM = 0;
+int quantidadeCaixasG = 0;
+bool viACaixa = false;
+
+bool braçoOperando = false;
+bool caixaNaEsteira = false;
+
+bool estadoEmergencia = false;
+
+void loop0(void *parament);
+void loop1(void *parament);
 
 void ligar_esteira();
 void desligar_esteira();
 
 bool leituraIR();
 
-void setup() {
+float medirDistancia();
+void sensorDeCaixa();
+
+void zeraTudo();
+
+void setup()
+{
   Serial.begin(115200);
 
   xTaskCreatePinnedToCore(
-    loop0,       /* Task function. */
-    "Task0",     /* name of task. */
-    10000,       /* Stack size of task */
-    NULL,        /* parameter of the task */
-    1,           /* priority of the task */
-    NULL,        /* Task handle. */
-    0            /* core where the task should run */
+      loop0,   /* Task function. */
+      "Task0", /* name of task. */
+      10000,   /* Stack size of task */
+      NULL,    /* parameter of the task */
+      1,       /* priority of the task */
+      NULL,    /* Task handle. */
+      0        /* core where the task should run */
   );
 
   xTaskCreatePinnedToCore(
-    loop1,       /* Task function. */
-    "Task1",     /* name of task. */
-    10000,       /* Stack size of task */
-    NULL,        /* parameter of the task */
-    1,           /* priority of the task */
-    NULL,        /* Task handle. */
-    1            /* core where the task should run */
+      loop1,   /* Task function. */
+      "Task1", /* name of task. */
+      10000,   /* Stack size of task */
+      NULL,    /* parameter of the task */
+      1,       /* priority of the task */
+      NULL,    /* Task handle. */
+      1        /* core where the task should run */
   );
 
   pinMode(stepPin, OUTPUT);
@@ -48,9 +75,11 @@ void setup() {
 
   pinMode(ir, INPUT);
 
+  pinMode(botaoEmergencia, INPUT);
 }
 
-void loop() {
+void loop()
+{
 }
 
 /*
@@ -62,16 +91,30 @@ void loop() {
 ● Tratamento das interrupções;
 ● Sincronização temporal do sistema.*/
 
-void loop0(void * parameter) {
+void loop0(void *parameter)
+{
   Serial.println("Task0");
-  while(true) {
-    if(leituraIR() == true){
+  while (true){
+    if (digitalRead(estadoEmergencia) == HIGH){
+      emergincia();
+      estadoEmergencia = true;
+      while (botaoEmergencia == true){
+        if (digitalRead(estadoEmergencia) == HIGH){
+          estadoEmergencia = false;
+        }
+      }
+    } 
+    if (leituraIR() == true)
+    {
       desligar_esteira();
     }
-    else{
+    else
+    {
       ligar_esteira();
     }
-    
+    sensorDeCaixa();
+    zeraTudo();
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
@@ -85,29 +128,78 @@ void loop0(void * parameter) {
 ● Armazenamento de dados;
 ● Supervisão geral do sistema.*/
 
-void loop1(void * parameter) {
+void loop1(void *parameter)
+{
   Serial.println("Task1");
-  while(true) {
+  while (true)
+  {
 
-  } 
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
 }
 
-void ligar_esteira(){
+void ligar_esteira()
+{
   digitalWrite(dirPin, HIGH);
   ledcWrite(0, 128);
 }
 
-void desligar_esteira(){
+void desligar_esteira()
+{
   digitalWrite(dirPin, LOW);
   ledcWrite(0, 0);
 }
 
-bool leituraIR(){
+bool leituraIR()
+{
   int estadoIR = digitalRead(ir);
-  if(estadoIR == LOW){
+  if (estadoIR == LOW)
+  {
     return true;
   }
-  else{
+  else
+  {
     return false;
   }
+}
+
+float medirDistancia()
+{
+  return distanceSensor.measureDistanceCm();
+}
+
+void sensorDeCaixa()
+{
+  if (viACaixa == false)
+  {
+    viACaixa = true;
+    float tamanho = medirDistancia();
+    if (tamanho < medidaCaixaP)
+    {
+      quantidadeCaixasP++;
+    }
+    else if (tamanho < medidaCaixaM)
+    {
+      quantidadeCaixasM++;
+    }
+    else if (tamanho < medidaCaixaG)
+    {
+      quantidadeCaixasG++;
+    }
+    else
+    {
+    }
+  }
+}
+
+void emergincia()
+{
+  desligar_esteira();
+}
+
+void zeraTudo()
+{
+  braçoOperando = false;
+  caixaNaEsteira = false;
+  viACaixa = false;
 }

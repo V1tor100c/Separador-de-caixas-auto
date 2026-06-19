@@ -1,14 +1,14 @@
 #include <HCSR04.h> // Inclui a biblioteca do sensor
 
 // Define os pinos de conexão (Trigger, Echo)
-int pino_trigger = 15;
-int pino_echo = 12;
+int pino_trigger = 5;
+int pino_echo = 6;
 
 // Inicializa o sensor nos pinos definidos
 UltraSonicDistanceSensor distanceSensor(pino_trigger, pino_echo);
 
 void setup() {
-  Serial.begin(115200); // Inicia o Monitor Serial
+  Serial.begin(9600); // Inicia o Monitor Serial
 }
 
 void loop() {
