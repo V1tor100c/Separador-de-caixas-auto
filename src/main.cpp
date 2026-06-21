@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
 #include <HCSR04.h>
+#include <ESP32Servo.h>
 
 const int stepPin = 15;
 const int dirPin = 4;
@@ -10,7 +11,9 @@ const int pino_trigger = 5;
 const int pino_echo = 2;
 UltraSonicDistanceSensor distanceSensor(pino_trigger, pino_echo);
 
-const int ir = 14;
+const int iri = 14;
+
+const int bracoI[] = {30, 31, 32, 33};
 
 const int botaoEmergencia = 12;
 
@@ -24,7 +27,7 @@ int quantidadeCaixasM = 0;
 int quantidadeCaixasG = 0;
 bool viACaixa = false;
 
-bool braçoOperando = false;
+bool bracoOperando = false;
 bool caixaNaEsteira = false;
 
 bool estadoEmergencia = false;
@@ -39,6 +42,10 @@ bool leituraIR();
 
 float medirDistancia();
 void sensorDeCaixa();
+
+void pegarCaixa();
+
+void emergencia();
 
 void zeraTudo();
 
@@ -73,7 +80,11 @@ void setup()
   ledcSetup(0, frequenciaMotor, 8);
   ledcAttachPin(stepPin, 0);
 
-  pinMode(ir, INPUT);
+  pinMode(iri, INPUT);
+
+  for(int i = 0; i < 4; i++){
+    pinMode(bracoI[i], OUTPUT);
+  }
 
   pinMode(botaoEmergencia, INPUT);
 }
@@ -91,12 +102,11 @@ void loop()
 ● Tratamento das interrupções;
 ● Sincronização temporal do sistema.*/
 
-void loop0(void *parameter)
-{
+void loop0(void *parameter){
   Serial.println("Task0");
   while (true){
     if (digitalRead(estadoEmergencia) == HIGH){
-      emergincia();
+      emergencia();
       estadoEmergencia = true;
       while (botaoEmergencia == true){
         if (digitalRead(estadoEmergencia) == HIGH){
@@ -152,7 +162,7 @@ void desligar_esteira()
 
 bool leituraIR()
 {
-  int estadoIR = digitalRead(ir);
+  int estadoIR = digitalRead(iri);
   if (estadoIR == LOW)
   {
     return true;
@@ -192,14 +202,18 @@ void sensorDeCaixa()
   }
 }
 
-void emergincia()
+void pegarCaixa(){
+
+}
+
+void emergencia()
 {
   desligar_esteira();
 }
 
 void zeraTudo()
 {
-  braçoOperando = false;
+  bracoOperando = false;
   caixaNaEsteira = false;
   viACaixa = false;
 }
