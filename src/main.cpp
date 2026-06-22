@@ -2,6 +2,14 @@
 #include <ESP32Servo.h>
 #include <HCSR04.h>
 #include <ESP32Servo.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_ADDR 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 const int stepPin = 15;
 const int dirPin = 4;
@@ -22,9 +30,9 @@ const int botaoIniciar = 13;
 const int botaoEmergencia = 12;
 
 int medidaSemCaixa = 15;
-int medidaCaixaG = 12;
+int medidaCaixaP = 12;
 int medidaCaixaM = 10;
-int medidaCaixaP = 8;
+int medidaCaixaG = 8;
 
 int quantidadeCaixasP = 0;
 int quantidadeCaixasM = 0;
@@ -72,6 +80,8 @@ void IRAM_ATTR emergencia();
 
 void zeraTudo();
 
+QueueHandle_t filaCaixas;
+QueueHandle_t filaEstadoAtual;
 
 
 void setup()
@@ -119,6 +129,10 @@ void setup()
 
   pinMode(botaoIniciar, INPUT);
   pinMode(botaoEmergencia, INPUT);
+  attachInterrupt(digitalPinToInterrupt(botaoEmergencia), emergencia, RISING);
+
+  filaCaixas = xQueueCreate(5, sizeof(char));
+  filaEstadoAtual = xQueueCreate(5, sizeof(EstadosSistema));
 }
 
 void loop()
@@ -149,6 +163,7 @@ void loop0(void *parameter){
           estadoAtual = MANIPULADOR1_PEGA_CAIXA;
           while(digitalRead(botaoIniciar) == HIGH) { delay(10); }
         }
+        break;
 
       case MANIPULADOR1_PEGA_CAIXA:
         Serial.println("[Status] Manipulador 1 Movendo...");
@@ -167,9 +182,7 @@ void loop0(void *parameter){
         break;
 
       case AGUARDANDO_FIM_ESTEIRA:
-        // Continua com a esteira ligada até a caixa bater no segundo sensor
-        estadoIR = leituraIR();
-        if (estadoIR == LOW) {
+        if (leituraIR() == true) {
           desligar_esteira();
           estadoAtual = MANIPULADOR2_SEPARA_CAIXA;
         }
@@ -180,10 +193,10 @@ void loop0(void *parameter){
         Serial.println(tamanhoCaixaMedida);
         
         if(leituraIR() == true){
-          if(tamanhoCaixaMedida = 'P'){
+          if(tamanhoCaixaMedida == 'P'){
             colocarCaixaP();
           }
-          else if(tamanhoCaixaMedida = 'M'){
+          else if(tamanhoCaixaMedida == 'M'){
             colocarCaixaM();
           }
           else{
@@ -264,29 +277,26 @@ float medirDistancia()
   return distanceSensor.measureDistanceCm();
 }
 
-void sensorDeCaixa()
-{
-  if (viACaixa == false)
-  {
-    viACaixa = true;
-    float tamanho = medirDistancia();
-    if (tamanho < medidaCaixaP)
+void sensorDeCaixa(){
+  if (viACaixa == false){
+  float tamanho = medirDistancia();
+    if (tamanho < medidaCaixaG)
     {
-      quantidadeCaixasP++;
-      tamanhoCaixaMedida = 'P';
+      quantidadeCaixasG++;
+      tamanhoCaixaMedida = 'G';
+      viACaixa = true;
     }
     else if (tamanho < medidaCaixaM)
     {
       quantidadeCaixasM++;
       tamanhoCaixaMedida = 'M';
+      viACaixa = true;
     }
-    else if (tamanho < medidaCaixaG)
+    else if (tamanho < medidaCaixaP)
     {
-      quantidadeCaixasG++;
-      tamanhoCaixaMedida = 'G';
-    }
-    else
-    {
+      quantidadeCaixasP++;
+      tamanhoCaixaMedida = 'P';
+      viACaixa = true;
     }
   }
 }
@@ -325,8 +335,8 @@ void colocarCaixaG(){
   braco24.write(75);
 }
 
-void emergencia(){
-  desligar_esteira();
+void IRAM_ATTR emergencia(){
+  estadoEmergencia = true;  // Não sei se isso funciona
 }
 
 void zeraTudo(){
