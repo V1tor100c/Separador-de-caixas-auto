@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Painel Esteira UTFPR</title>
+  <style>
+    body { font-family: Arial; text-align: center; background: #f4f4f4; } 
+    .card { background: white; padding: 20px; margin: 10px auto; max-width: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    h1 { color: #333; } 
+    .status { font-weight: bold; color: blue; }
+  </style>
+
+  <script>
+    // Como não há ESP32 real para responder ao '/dados', vamos apenas simular 
+    // valores estáticos na tela para você ver como fica o visual final.
+    window.onload = function() {
+      document.getElementById('status').innerText = "Esteira Ligada (Simulado)";
+      document.getElementById('qtdP').innerText = "5";
+      document.getElementById('qtdM').innerText = "12";
+      document.getElementById('qtdG').innerText = "3";
+    };
+  </script>
+</head>
+<body>
+  <h1>UTFPR - Sistema de Classificação</h1>
+  <div class='card'><h2>Status: <span id='status' class="status">Carregando...</span></h2></div>
+  <div class='card'>
+    <h3>Contador de Caixas:</h3>
+    <p>Pequenas: <span id='qtdP'>0</span></p>
+    <p>Médias: <span id='qtdM'>0</span></p>
+    <p>Grandes: <span id='qtdG'>0</span></p>
+  </div>
+</body>
+</html>
