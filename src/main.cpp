@@ -32,15 +32,15 @@ bool estadoIR = false;
 Servo braco11, braco12, braco13, braco14;
 Servo braco21, braco22, braco23, braco24;
 
-const int botaoIniciar = 25;
+const int botaoIniciar = 33;
 const int botaoEmergencia = 34;
 
-const int buzzer = 2; //pin 23
+const int buzzer = 23; //pin 23
 const int LM35 = 36; // VP Pin no ESP32 (ADC1_CH0)
 
-const int LED_R = 25;
-const int LED_G = 26;
-const int LED_B = 27;
+const int LED_R = 5;
+const int LED_G = 18;
+const int LED_B = 19;
 
 // --- VARIÁVEIS COMPARTILHADAS (Protegidas pelo Mutex) ---
 int quantidadeCaixasP = 0;
@@ -170,7 +170,7 @@ void setup() {
   pinMode(iri, INPUT);
 
   braco11.attach(30, 500, 2400); braco12.attach(31, 500, 2400);
-  braco13.attach(32, 500, 2400); braco14.attach(33, 500, 2400);
+  braco13.attach(32, 500, 2400); braco14.attach(39, 500, 2400);
 
   braco21.attach(34, 500, 2400); braco22.attach(35, 500, 2400);
   braco23.attach(36, 500, 2400); braco24.attach(37, 500, 2400);
@@ -239,6 +239,7 @@ void loop0(void *parameter) {
         break;
 
       case MANIPULADOR1_PEGA_CAIXA:
+        Serial.println("MANIPULADOR 1 PEGA CAIXA!");
         pegarCaixa();
         xSemaphoreTake(mutexDados, portMAX_DELAY);
         estadoAtual = ESTEIRA_TRANSPORTANDO;
@@ -246,6 +247,7 @@ void loop0(void *parameter) {
         break;
 
       case ESTEIRA_TRANSPORTANDO:
+        Serial.println("ESTEIRA TRANSPORTANDO!");
         ligar_esteira();
         sensorDeCaixa(); 
         
@@ -261,6 +263,7 @@ void loop0(void *parameter) {
         break;
 
       case AGUARDANDO_FIM_ESTEIRA:
+        Serial.println("AGUARDANDO FIM ESTEIRA!");
         if (leituraIR() == true) {
           desligar_esteira();
           xSemaphoreTake(mutexDados, portMAX_DELAY);
@@ -270,6 +273,7 @@ void loop0(void *parameter) {
         break;
 
       case MANIPULADOR2_SEPARA_CAIXA:
+        Serial.println("MANIPULADOR 2 SEPARA CAIXA!");
         xSemaphoreTake(mutexDados, portMAX_DELAY);
         tamanho = tamanhoCaixaMedida;
         xSemaphoreGive(mutexDados);
@@ -284,6 +288,7 @@ void loop0(void *parameter) {
         break;
 
       case RESETANDO_MAQUINA:
+        Serial.println("RESETANDO MAQUINA!");
         zeraTudo();
         xSemaphoreTake(mutexDados, portMAX_DELAY);
         estadoAtual = AGUARDANDO_START;
