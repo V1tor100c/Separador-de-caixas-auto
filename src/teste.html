@@ -1,35 +1,123 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset='UTF-8'>
-  <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>Painel Esteira UTFPR</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UTFPR - Sistema de Separação</title>
   <style>
-    body { font-family: Arial; text-align: center; background: #f4f4f4; } 
-    .card { background: white; padding: 20px; margin: 10px auto; max-width: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-    h1 { color: #333; } 
-    .status { font-weight: bold; color: blue; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+    h1 { color: #1a3c5e; margin-bottom: 5px; }
+    .subtitle { color: #666; margin-top: 0; margin-bottom: 20px; }
+    .container { max-width: 600px; width: 100%; }
+    .card { background: white; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 16px 20px; margin-bottom: 16px; }
+    .row { display: flex; justify-content: space-between; flex-wrap: wrap; padding: 4px 0; }
+    .label { color: #555; font-weight: bold; }
+    .value { font-weight: normal; }
+    .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.9em; font-weight: bold; }
+    .event-list { max-height: 150px; overflow-y: auto; list-style: none; padding: 0; margin: 8px 0 0; }
+    .event-list li { border-bottom: 1px solid #eee; padding: 4px 0; font-size: 0.9em; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 1em; cursor: pointer; margin: 4px; }
+    .btn-primary { background: #007bff; color: white; }
+    .btn-primary:hover { background: #0069d9; }
+    .btn-danger { background: #dc3545; color: white; }
+    .btn-danger:hover { background: #c82333; }
+    .flex { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .alert { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; padding: 8px 12px; border-radius: 4px; display: none; }
   </style>
-
-  <script>
-    // Como não há ESP32 real para responder ao '/dados', vamos apenas simular 
-    // valores estáticos na tela para você ver como fica o visual final.
-    window.onload = function() {
-      document.getElementById('status').innerText = "Esteira Ligada (Simulado)";
-      document.getElementById('qtdP').innerText = "5";
-      document.getElementById('qtdM').innerText = "12";
-      document.getElementById('qtdG').innerText = "3";
-    };
-  </script>
 </head>
 <body>
-  <h1>UTFPR - Sistema de Classificação</h1>
-  <div class='card'><h2>Status: <span id='status' class="status">Carregando...</span></h2></div>
-  <div class='card'>
-    <h3>Contador de Caixas:</h3>
-    <p>Pequenas: <span id='qtdP'>0</span></p>
-    <p>Médias: <span id='qtdM'>0</span></p>
-    <p>Grandes: <span id='qtdG'>0</span></p>
+  <h1>📦 UTFPR - Sistema de Separação</h1>
+  <p class="subtitle">Central de controle da maquina de separação de Caixas</p>
+  <div class="container">
+    <div id="alerta" class="card alert">⚠️ EMERGÊNCIA / TEMPERATURA ALTA!</div>
+
+    <div class="card">
+      <div class="row"><span class="label">Status:</span><span id="status" class="value">---    </span></div>
+      <div class="row"><span class="label">Temperatura:</span><span id="temp" class="value">-- °C</span></div>
+      <div class="row"><span class="label">Esteira:</span><span id="esteira" class="value">---    </span></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Manipuladores</h3>
+      <div class="row"><span class="label">Manipulador 1:</span><span id="manip1" class="value">---</span></div>
+      <div class="row"><span class="label">Manipulador 2:</span><span id="manip2" class="value">---</span></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Caixas Classificadas</h3>
+      <div class="row"><span class="label">Total:</span><span id="total" class="value">0</span></div>
+      <div class="row"><span class="label">Pequenas (P):</span><span id="qtdP" class="value">0</span></div>
+      <div class="row"><span class="label">Médias (M):</span><span id="qtdM" class="value">0</span></div>
+      <div class="row"><span class="label">Grandes (G):</span><span id="qtdG" class="value">0</span></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Últimos Eventos</h3>
+      <ul id="eventos" class="event-list"><li>Nenhum evento ainda</li></ul>
+    </div>
+
+    <div class="card flex">
+      <button class="btn btn-primary" onclick="iniciarProcesso()">▶ Iniciar Processo</button>
+      <button class="btn btn-danger" onclick="emergenciaVirtual()">⛔ Emergência Virtual</button>
+    </div>
   </div>
+
+  <script>
+    function atualizar() {
+      fetch('/dados')
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('status').innerText = data.estado || 'Desconhecido';
+          document.getElementById('temp').innerText = (data.temperatura || 0).toFixed(1) + ' °C';
+          document.getElementById('esteira').innerText = data.esteira || '---';
+          document.getElementById('manip1').innerText = data.manipulador1 || '---';
+          document.getElementById('manip2').innerText = data.manipulador2 || '---';
+          document.getElementById('total').innerText = (data.p || 0) + (data.m || 0) + (data.g || 0);
+          document.getElementById('qtdP').innerText = data.p || 0;
+          document.getElementById('qtdM').innerText = data.m || 0;
+          document.getElementById('qtdG').innerText = data.g || 0;
+
+          const evList = document.getElementById('eventos');
+          evList.innerHTML = '';
+          if (data.eventos && data.eventos.length > 0) {
+            data.eventos.forEach(msg => {
+              const li = document.createElement('li');
+              li.textContent = msg;
+              evList.appendChild(li);
+            });
+          } else {
+            evList.innerHTML = '<li>Nenhum evento</li>';
+          }
+
+          const alertDiv = document.getElementById('alerta');
+          if (data.temperatura > 45 || (data.estado && data.estado.includes('EMERGENCIA'))) {
+            alertDiv.style.display = 'block';
+          } else {
+            alertDiv.style.display = 'none';
+          }
+        })
+        .catch(err => console.error('Erro ao buscar dados:', err));
+    }
+
+    function iniciarProcesso() {
+      fetch('/iniciar')
+        .then(response => response.text())
+        .then(() => { console.log('Iniciado via web'); })
+        .catch(err => alert('Erro ao iniciar: ' + err));
+    }
+
+    function emergenciaVirtual() {
+      if (confirm('Ativar emergência virtual?')) {
+        fetch('/emergencia_virtual')
+          .then(response => response.text())
+          .then(() => { console.log('Emergência ativada'); })
+          .catch(err => alert('Erro: ' + err));
+      }
+    }
+
+    setInterval(atualizar, 1000);
+    atualizar();
+  </script>
 </body>
 </html>

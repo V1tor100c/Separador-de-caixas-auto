@@ -7,9 +7,9 @@
 #include <WiFi.h>
 #include <WebServer.h>
 
-// Substitua pelo nome e senha do Wi-Fi da sua casa ou laboratório
-const char* ssid = "NOME_DO_SEU_WIFI";
-const char* password = "SENHA_DO_SEU_WIFI";
+// Substitui pelo nome e senha do Wi-Fi
+const char* ssid = "POCO F7";
+const char* password = "boracarnavalnorio";
 
 WebServer server(80);
 
@@ -20,7 +20,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 const int stepPin = 15;
 const int dirPin = 4;
-const int frequenciaMotor = 20;
+const int frequenciaMotor = 70;
 
 const int pino_trigger = 5;
 const int pino_echo = 2;
@@ -32,10 +32,10 @@ bool estadoIR = false;
 Servo braco11, braco12, braco13, braco14;
 Servo braco21, braco22, braco23, braco24;
 
-const int botaoIniciar = 13;
-const int botaoEmergencia = 12;
+const int botaoIniciar = 25;
+const int botaoEmergencia = 34;
 
-const int buzzer = 23;
+const int buzzer = 2; //pin 23
 const int LM35 = 36; // VP Pin no ESP32 (ADC1_CH0)
 
 const int LED_R = 25;
@@ -49,6 +49,7 @@ int quantidadeCaixasG = 0;
 char tamanhoCaixaMedida = '-';
 volatile float temperaturaAtual = 0.0;
 volatile bool estadoEmergencia = false;
+volatile unsigned long tempoUltimoClique = 0; // Variável para o Debounce do botão
 
 enum EstadosSistema {
   AGUARDANDO_START,
@@ -67,6 +68,8 @@ int medidaCaixaP = 12;
 int medidaCaixaM = 10;
 int medidaCaixaG = 8;
 bool viACaixa = false;
+char tamanho;
+char tamanhoAtual;
 
 volatile bool flagMedirTemperatura = false; // Flag da 2ª Interrupção
 
@@ -93,9 +96,15 @@ void enviarDadosJSON();
 void tratarBotaoVirtualEmergencia();
 String obterNomeEstado(EstadosSistema estado);
 
-// 1ª INTERRUPÇÃO: Botão Físico
+// 1ª INTERRUPÇÃO: Botão Físico (COM DEBOUNCE E ALTERNÂNCIA)
 void IRAM_ATTR emergencia() {
-  estadoEmergencia = true;  
+  unsigned long tempoAtual = millis();
+  
+  // Se passou mais de 300ms desde o último clique, considera válido
+  if (tempoAtual - tempoUltimoClique > 300) {
+    estadoEmergencia = !estadoEmergencia; // Inverte o estado (se for true passa a false)
+    tempoUltimoClique = tempoAtual;
+  }
 }
 
 // 2ª INTERRUPÇÃO OBRIGATÓRIA: Temporização Periódica por Hardware
@@ -136,6 +145,7 @@ void setup() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("ERRO CRITICO: SSD1306 nao encontrado!"));
   } else {
+    Serial.println("OLED encontrado!");
     display.clearDisplay();
     display.display();
   }
@@ -174,6 +184,7 @@ void loop() {}
 
 // CORE 0 - Controle e Sensores em Tempo Real
 void loop0(void *parameter) {
+  Serial.println("CORE 0 INICIADO!");
   while (true) {
     
     // Leitura da Temperatura (Controlada pela Interrupção)
@@ -184,19 +195,36 @@ void loop0(void *parameter) {
       
       xSemaphoreTake(mutexDados, portMAX_DELAY);
       temperaturaAtual = temp;
-      if (temperaturaAtual > 45.0) estadoEmergencia = true; // Incêndio
+      if (temperaturaAtual > 65.0) estadoEmergencia = true; // Incêndio
       xSemaphoreGive(mutexDados);
     }
 
-    // Verifica Emergência (Pode vir do botão físico, do sensor ou da Web)
+    // Leitura segura do estado de emergência e temperatura
     xSemaphoreTake(mutexDados, portMAX_DELAY);
     bool emEmergencia = estadoEmergencia;
+    float tempCheck = temperaturaAtual;
     xSemaphoreGive(mutexDados);
 
-    if (emEmergencia) {
+    // Gestão Segura de Entrada/Saída de Emergência
+    if (emEmergencia && estadoAtual != EM_EMERGENCIA) {
+      Serial.println("ENTRANDO EM EMERGENCIA!");
       xSemaphoreTake(mutexDados, portMAX_DELAY);
       estadoAtual = EM_EMERGENCIA;
       xSemaphoreGive(mutexDados);
+    } 
+    else if (!emEmergencia && estadoAtual == EM_EMERGENCIA) {
+      if (tempCheck < 55.0) {
+        Serial.println("SAINDO DA EMERGENCIA!");
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoAtual = AGUARDANDO_START;
+        xSemaphoreGive(mutexDados);
+        digitalWrite(buzzer, LOW); // Desliga o aviso sonoro
+      } else {
+        Serial.println("MUITO QUENTE! Manter na emergencia.");
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoEmergencia = true; // Força o estado bloqueado por segurança
+        xSemaphoreGive(mutexDados);
+      }
     }
 
     switch (estadoAtual) {
@@ -222,7 +250,7 @@ void loop0(void *parameter) {
         sensorDeCaixa(); 
         
         xSemaphoreTake(mutexDados, portMAX_DELAY);
-        char tamanhoAtual = tamanhoCaixaMedida;
+        tamanhoAtual = tamanhoCaixaMedida;
         xSemaphoreGive(mutexDados);
 
         if (tamanhoAtual != '-') {
@@ -243,7 +271,7 @@ void loop0(void *parameter) {
 
       case MANIPULADOR2_SEPARA_CAIXA:
         xSemaphoreTake(mutexDados, portMAX_DELAY);
-        char tamanho = tamanhoCaixaMedida;
+        tamanho = tamanhoCaixaMedida;
         xSemaphoreGive(mutexDados);
 
         if (tamanho == 'P') colocarCaixaP();
@@ -263,27 +291,20 @@ void loop0(void *parameter) {
         break;
 
       case EM_EMERGENCIA:
+        // APENAS desliga e apita. Sem ciclos 'while' infinitos aqui!
         desligar_esteira();
         digitalWrite(buzzer, HIGH); 
-        
-        xSemaphoreTake(mutexDados, portMAX_DELAY);
-        float tempCheck = temperaturaAtual;
-        xSemaphoreGive(mutexDados);
-
-        if (digitalRead(botaoEmergencia) == HIGH && tempCheck < 40.0) { 
-          xSemaphoreTake(mutexDados, portMAX_DELAY);
-          estadoEmergencia = false;
-          estadoAtual = AGUARDANDO_START;
-          xSemaphoreGive(mutexDados);
-        }
         break;
     }
+    
+    // Essencial para o Watchdog Timer não resetar o ESP32!
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
 // CORE 1 - Interface, display, RGB e WebServer
 void loop1(void *parameter) {
+  Serial.println("CORE 1 INICIADO!");
   while (true) {
     server.handleClient(); // Roda o Servidor Web
 
@@ -322,12 +343,12 @@ void loop1(void *parameter) {
     display.setCursor(0, 0); display.println("UTFPR - MECHATRONICS"); 
     display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
     display.setCursor(0, 13); display.print("IP: "); display.println(WiFi.localIP().toString()); 
-    display.setCursor(0, 24); display.print("Status: "); display.println(obterNomeEstado(estadoLocal)); 
+    display.setCursor(0, 24); display.print("Stt: "); display.println(obterNomeEstado(estadoLocal)); 
     display.setCursor(0, 35); display.print("Temp: "); display.print(tempLocal, 1); display.println(" C"); 
     display.setCursor(0, 45); display.print("Ultima: "); display.println(ultimaLocal); 
     display.setCursor(0, 55);
     display.print("T:"); display.print(pLocal + mLocal + gLocal); 
-    display.print(" P:"); display.print(pLocal);
+    display.print("      P:"); display.print(pLocal);
     display.print(" M:"); display.print(mLocal);
     display.print(" G:"); display.print(gLocal);
 
@@ -340,20 +361,18 @@ void loop1(void *parameter) {
 void ligar_esteira() { 
   digitalWrite(dirPin, HIGH); 
   ledcWrite(0, 128); 
-  }
+}
 
 void desligar_esteira() { 
   digitalWrite(dirPin, LOW); 
   ledcWrite(0, 0); 
-  }
+}
 
-bool leituraIR() { return (
-  digitalRead(iri) == LOW); 
-  }
+bool leituraIR() { return (digitalRead(iri) == LOW); }
 
 float medirDistancia() { 
   return distanceSensor.measureDistanceCm(); 
-  }
+}
 
 void sensorDeCaixa() {
   if (viACaixa == false) {
@@ -394,7 +413,7 @@ void colocarCaixaP() {
   braco23.write(45); 
   vTaskDelay(pdMS_TO_TICKS(30)); 
   braco24.write(15); 
-  }
+}
 
 void colocarCaixaM() { 
   braco21.write(45); 
@@ -403,7 +422,7 @@ void colocarCaixaM() {
   braco23.write(45); 
   vTaskDelay(pdMS_TO_TICKS(30)); 
   braco24.write(45); 
-  }
+}
 
 void colocarCaixaG() { 
   braco21.write(45); 
@@ -412,7 +431,7 @@ void colocarCaixaG() {
   braco23.write(45); 
   vTaskDelay(pdMS_TO_TICKS(30)); 
   braco24.write(75); 
-  }
+}
 
 void zeraTudo() {
   viACaixa = false;
@@ -427,7 +446,7 @@ void setCorRGB(int r, int g, int b) {
   analogWrite(LED_R, r); 
   analogWrite(LED_G, g); 
   analogWrite(LED_B, b); 
-  }
+}
 
 // INTERFACE WEB
 void enviarPaginaWeb() {
@@ -468,7 +487,6 @@ void enviarPaginaWeb() {
 }
 
 void enviarDadosJSON() {
-  // Pega a chave do Mutex rapidinho, monta o JSON e devolve a chave
   xSemaphoreTake(mutexDados, portMAX_DELAY);
   String json = "{";
   json += "\"estado\":\"" + obterNomeEstado(estadoAtual) + "\","; 
@@ -484,9 +502,9 @@ void enviarDadosJSON() {
 
 void tratarBotaoVirtualEmergencia() {
   xSemaphoreTake(mutexDados, portMAX_DELAY);
-  estadoEmergencia = true;
+  estadoEmergencia = !estadoEmergencia; // Para que o botão virtual também alterne (entre e saia)
   xSemaphoreGive(mutexDados);
-  server.send(200, "text/plain", "Emergencia Ativada");
+  server.send(200, "text/plain", "Emergencia Alternada");
 }
 
 String obterNomeEstado(EstadosSistema estado) {
@@ -497,7 +515,7 @@ String obterNomeEstado(EstadosSistema estado) {
     case AGUARDANDO_FIM_ESTEIRA: return "Caixa em Curso";
     case MANIPULADOR2_SEPARA_CAIXA: return "Separando Caixa";
     case RESETANDO_MAQUINA: return "Resetando";
-    case EM_EMERGENCIA: return "!!! EMERGENCIA !!!";
+    case EM_EMERGENCIA: return "!!!EMERGENCIA!!!";
     default: return "Desconhecido";
   }
 }
@@ -509,567 +527,536 @@ String obterNomeEstado(EstadosSistema estado) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 // #include <Arduino.h>
 // #include <ESP32Servo.h>
 // #include <HCSR04.h>
-// #include <ESP32Servo.h>
 // #include <Wire.h>
 // #include <Adafruit_GFX.h>
 // #include <Adafruit_SSD1306.h>
 // #include <WiFi.h>
 // #include <WebServer.h>
 
-// // Substitua pelo nome e senha do Wi-Fi da sua casa ou laboratório
-// const char* ssid = "NOME_DO_SEU_WIFI";
-// const char* password = "SENHA_DO_SEU_WIFI";
+//   // Substitua pelo nome e senha do Wi-Fi da sua casa ou laboratório
+//   const char* ssid = "POCO F7";
+//   const char* password = "boracarnavalnorio";
 
-// // Cria o servidor web na porta padrão HTTP (porta 80)
-// WebServer server(80);
+//   WebServer server(80);
 
-// #define SCREEN_WIDTH 128
-// #define SCREEN_HEIGHT 64
-// #define OLED_ADDR 0x3C
-// Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+//   #define SCREEN_WIDTH 128
+//   #define SCREEN_HEIGHT 64
+//   #define OLED_ADDR 0x3C
+//   Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// const int stepPin = 15;
-// const int dirPin = 4;
-// const int frequenciaMotor = 20;
+//   const int stepPin = 15;
+//   const int dirPin = 4;
+//   const int frequenciaMotor = 70;
 
-// const int pino_trigger = 5;
-// const int pino_echo = 2;
-// UltraSonicDistanceSensor distanceSensor(pino_trigger, pino_echo);
+//   const int pino_trigger = 5;
+//   const int pino_echo = 2;
+//   UltraSonicDistanceSensor distanceSensor(pino_trigger, pino_echo);
 
-// const int iri = 14;
-// bool estadoIR = false;
+//   const int iri = 14;
+//   bool estadoIR = false;
 
-// const int bracoI[] = {30, 31, 32, 33};
-// Servo braco11, braco12, braco13, braco14;
-// Servo braco21, braco22, braco23, braco24;
+//   Servo braco11, braco12, braco13, braco14;
+//   Servo braco21, braco22, braco23, braco24;
 
-// const int botaoIniciar = 13;
-// const int botaoEmergencia = 12;
+//   const int botaoIniciar = 25;
+//   const int botaoEmergencia = 34;
 
-// const int buzzer = 23;
-// const int LM35 = 36;
+//   const int buzzer = 2; //pin 23
+//   const int LM35 = 36; // VP Pin no ESP32 (ADC1_CH0)
 
-// const int LED_R = 25;
-// const int LED_G = 26;
-// const int LED_B = 27;
+//   const int LED_R = 25;
+//   const int LED_G = 26;
+//   const int LED_B = 27;
 
-// int medidaSemCaixa = 15;
-// int medidaCaixaP = 12;
-// int medidaCaixaM = 10;
-// int medidaCaixaG = 8;
+//   // --- VARIÁVEIS COMPARTILHADAS (Protegidas pelo Mutex) ---
+//   int quantidadeCaixasP = 0;
+//   int quantidadeCaixasM = 0;
+//   int quantidadeCaixasG = 0;
+//   char tamanhoCaixaMedida = '-';
+//   volatile float temperaturaAtual = 0.0;
+//   volatile bool estadoEmergencia = false;
 
-// int quantidadeCaixasP = 0;
-// int quantidadeCaixasM = 0;
-// int quantidadeCaixasG = 0;
-// bool viACaixa = false;
+//   enum EstadosSistema {
+//     AGUARDANDO_START,
+//     MANIPULADOR1_PEGA_CAIXA,
+//     ESTEIRA_TRANSPORTANDO,
+//     AGUARDANDO_FIM_ESTEIRA,
+//     MANIPULADOR2_SEPARA_CAIXA,
+//     RESETANDO_MAQUINA,
+//     EM_EMERGENCIA
+//   };
+//   EstadosSistema estadoAtual = AGUARDANDO_START;
+//   // --------------------------------------------------------
 
-// bool bracoOperando = false;
-// bool caixaNaEsteira = false;
+//   int medidaSemCaixa = 15;
+//   int medidaCaixaP = 12;
+//   int medidaCaixaM = 10;
+//   int medidaCaixaG = 8;
+//   bool viACaixa = false;
+//   char tamanho;
+//   char tamanhoAtual;
 
-// volatile bool estadoEmergencia = false;
+//   volatile bool flagMedirTemperatura = false; // Flag da 2ª Interrupção
 
-// char tamanhoCaixaMedida = 'X';
+//   // Criação do Mutex e do Timer
+//   SemaphoreHandle_t mutexDados; 
+//   hw_timer_t *timerTemperatura = NULL;
 
-// // Definição dos Estados do Sistema (Máquina de Estados)
-// enum EstadosSistema {
-//   AGUARDANDO_START,
-//   MANIPULADOR1_PEGA_CAIXA,
-//   ESTEIRA_TRANSPORTANDO,
-//   AGUARDANDO_FIM_ESTEIRA,
-//   MANIPULADOR2_SEPARA_CAIXA,
-//   RESETANDO_MAQUINA,
-//   EM_EMERGENCIA
-// };
-// EstadosSistema estadoAtual = AGUARDANDO_START;
+//   // Prototipação das funções
+//   void loop0(void *parameter);
+//   void loop1(void *parameter);
+//   void ligar_esteira();
+//   void desligar_esteira();
+//   bool leituraIR();
+//   float medirDistancia();
+//   void sensorDeCaixa();
+//   void pegarCaixa();
+//   void colocarCaixaP();
+//   void colocarCaixaM();
+//   void colocarCaixaG();
+//   void zeraTudo();
+//   void setCorRGB(int r, int g, int b);
+//   void enviarPaginaWeb();
+//   void enviarDadosJSON();
+//   void tratarBotaoVirtualEmergencia();
+//   String obterNomeEstado(EstadosSistema estado);
 
-// // Prototipação das funções
-// void loop0(void *parament);
-// void loop1(void *parament);
-
-// void ligar_esteira();
-// void desligar_esteira();
-
-// bool leituraIR();
-
-// float medirDistancia();
-// void sensorDeCaixa();
-
-// void pegarCaixa();
-
-// void colocarCaixaP();
-// void colocarCaixaM();
-// void colocarCaixaG();
-
-
-// void IRAM_ATTR emergencia();
-
-// void zeraTudo();
-
-// QueueHandle_t filaCaixas;
-// QueueHandle_t filaEstadoAtual;
-
-// void setCorRGB(int r, int g, int b);
-
-// void enviarPaginaWeb();
-// void enviarDadosJSON();
-
-
-// void setup()
-// {
-//   Serial.begin(115200);
-//   Wire.begin(21, 22);
-//   Serial.println("Iniciando OLED...");
-
-
-
-//   // Conectando ao Wi-Fi
-//   Serial.print("Conectando ao Wi-Fi ");
-//   WiFi.begin(ssid, password);
-  
-//   // Enquanto não conectar, mostra pontinhos na Serial
-//   while (WiFi.status() != WL_CONNECTED) {
-//     delay(500);
-//     Serial.print(".");
-//   }
-  
-//   Serial.println("\nWi-Fi Conectado!");
-//   Serial.print("Endereço IP do ESP32: ");
-//   Serial.println(WiFi.localIP()); // <-- ESSE IP QUE VOCÊ VAI DIGITAR NO NAVEGADOR
-
-//   // Configura as rotas do Servidor Web
-//   server.on("/", enviarPaginaWeb);     // Se acessar o IP puro, envia o HTML
-//   server.on("/dados", enviarDadosJSON); // Se o JavaScript pedir /dados, envia o JSON
-  
-//   // Inicia o servidor
-//   server.begin();
-//   Serial.println("Servidor Web Iniciado!");
-
-
-
-//   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-//     Serial.println(F("ERRO CRITICO: SSD1306 nao encontrado!"));
-//   } else {
-//     Serial.println("OLED OK!");
-//     display.clearDisplay();
-//     display.display();
+//   // 1ª INTERRUPÇÃO: Botão Físico
+//   void IRAM_ATTR emergencia() {
+//     estadoEmergencia = true;
 //   }
 
-//   xTaskCreatePinnedToCore(
-//       loop0,   /* Task function. */
-//       "Task0", /* name of task. */
-//       10000,   /* Stack size of task */
-//       NULL,    /* parameter of the task */
-//       1,       /* priority of the task */
-//       NULL,    /* Task handle. */
-//       0        /* core where the task should run */
-//   );
+//   // 2ª INTERRUPÇÃO OBRIGATÓRIA: Temporização Periódica por Hardware
+//   void IRAM_ATTR onTimerTemperatura() {
+//     flagMedirTemperatura = true; 
+//   }
 
-//   xTaskCreatePinnedToCore(
-//       loop1,   /* Task function. */
-//       "Task1", /* name of task. */
-//       10000,   /* Stack size of task */
-//       NULL,    /* parameter of the task */
-//       1,       /* priority of the task */
-//       NULL,    /* Task handle. */
-//       1        /* core where the task should run */
-//   );
+//   void setup() {
+//     Serial.begin(115200);
+//     Wire.begin(21, 22);
 
-//   pinMode(stepPin, OUTPUT);
-//   pinMode(dirPin, OUTPUT);
-//   digitalWrite(stepPin, LOW);
-//   digitalWrite(dirPin, LOW);
-//   ledcSetup(0, frequenciaMotor, 8);
-//   ledcAttachPin(stepPin, 0);
+//     // Inicializa o Mutex (Memória Compartilhada)
+//     mutexDados = xSemaphoreCreateMutex();
 
-//   pinMode(iri, INPUT);
+//     pinMode(LED_R, OUTPUT);
+//     pinMode(LED_G, OUTPUT);
+//     pinMode(LED_B, OUTPUT);
+//     pinMode(buzzer, OUTPUT);
+//     pinMode(LM35, INPUT);
 
-//   braco11.attach(30, 500, 2400);
-//   braco12.attach(31, 500, 2400);
-//   braco13.attach(32, 500, 2400);
-//   braco14.attach(33, 500, 2400);
+//     digitalWrite(buzzer, LOW);
+//     setCorRGB(0, 0, 255); // Azul: Inicializando
 
-//   braco21.attach(34, 500, 2400);
-//   braco22.attach(35, 500, 2400);
-//   braco23.attach(36, 500, 2400);
-//   braco24.attach(37, 500, 2400);
+//     Serial.print("Conectando ao Wi-Fi ");
+//     WiFi.begin(ssid, password);
+//     while (WiFi.status() != WL_CONNECTED) {
+//       delay(500);
+//       Serial.print(".");
+//     }
+//     Serial.println("\nWi-Fi Conectado!");
 
-//   pinMode(botaoIniciar, INPUT);
-//   pinMode(botaoEmergencia, INPUT);
-//   attachInterrupt(digitalPinToInterrupt(botaoEmergencia), emergencia, RISING);
+//     // Configuração das rotas do Servidor Web
+//     server.on("/", enviarPaginaWeb);     
+//     server.on("/dados", enviarDadosJSON); 
+//     server.on("/emergencia_virtual", tratarBotaoVirtualEmergencia);
+//     server.begin();
 
-//   filaCaixas = xQueueCreate(5, sizeof(char));
-//   filaEstadoAtual = xQueueCreate(5, sizeof(EstadosSistema));
-
-//   pinMode(LED_R, OUTPUT);
-//   pinMode(LED_G, OUTPUT);
-//   pinMode(LED_B, OUTPUT);
-//   pinMode(buzzer, OUTPUT);
-//   pinMode(LM35, INPUT);
-
-//   digitalWrite(buzzer, LOW);
-//   digitalWrite(LED_R, LOW);
-//   digitalWrite(LED_G, LOW);
-//   digitalWrite(LED_B, LOW);
-// }
-
-// void loop()
-// {
-// }
-
-// /*
-// ● Leitura dos sensores;
-// ● Detecção das caixas;
-// ● Classificação das dimensões;
-// ● Controle dos manipuladores robóticos;
-// ● Controle dos motores da esteira;
-// ● Tratamento das interrupções;
-// ● Sincronização temporal do sistema.*/
-
-// void loop0(void *parameter){
-//   while (true) {
-    
-//     // Se a interrupção detectou emergência, força o estado de erro
-//     if (estadoEmergencia) {
-//       estadoAtual = EM_EMERGENCIA;
-//       xQueueSend(filaEstadoAtual, &estadoAtual, 0);
+//     if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+//       Serial.println(F("ERRO CRITICO: SSD1306 nao encontrado!"));
+//     } else {
+//       Serial.println("OLED encontrado!");
+//       display.clearDisplay();
+//       display.display();
 //     }
 
-//     switch (estadoAtual) {
+//     // Configuração das Interrupções
+//     pinMode(botaoIniciar, INPUT);
+//     pinMode(botaoEmergencia, INPUT);
+//     attachInterrupt(digitalPinToInterrupt(botaoEmergencia), emergencia, RISING);
+
+//     timerTemperatura = timerBegin(0, 80, true); 
+//     timerAttachInterrupt(timerTemperatura, &onTimerTemperatura, true);
+//     timerAlarmWrite(timerTemperatura, 1000000, true); // 1s
+//     timerAlarmEnable(timerTemperatura);
+
+//     pinMode(stepPin, OUTPUT);
+//     pinMode(dirPin, OUTPUT);
+//     digitalWrite(stepPin, LOW);
+//     digitalWrite(dirPin, LOW);
+//     ledcSetup(0, frequenciaMotor, 8);
+//     ledcAttachPin(stepPin, 0);
+
+//     pinMode(iri, INPUT);
+
+//     braco11.attach(30, 500, 2400); braco12.attach(31, 500, 2400);
+//     braco13.attach(32, 500, 2400); braco14.attach(33, 500, 2400);
+
+//     braco21.attach(34, 500, 2400); braco22.attach(35, 500, 2400);
+//     braco23.attach(36, 500, 2400); braco24.attach(37, 500, 2400);
+
+//     // Criação das tarefas
+//     xTaskCreatePinnedToCore(loop0, "Task0", 10000, NULL, 1, NULL, 0); // Core 0
+//     xTaskCreatePinnedToCore(loop1, "Task1", 10000, NULL, 1, NULL, 1); // Core 1
+//   }
+
+//   void loop() {}
+
+//   // CORE 0 - Controle e Sensores em Tempo Real
+//   void loop0(void *parameter) {
+//     Serial.println("CORE 0 INICIADO!");
+//     while (true) {
       
-//       case AGUARDANDO_START:
-//         digitalWrite(buzzer, LOW);
-//         if (digitalRead(botaoIniciar) == HIGH){
-//           estadoAtual = MANIPULADOR1_PEGA_CAIXA;
-//           xQueueSend(filaEstadoAtual, &estadoAtual, 0);
-//           while(digitalRead(botaoIniciar) == HIGH) { delay(10); }
-//         }
-//         break;
-
-//       case MANIPULADOR1_PEGA_CAIXA:
-//         Serial.println("[Status] Manipulador 1 Movendo...");
-//         pegarCaixa();
-//         estadoAtual = ESTEIRA_TRANSPORTANDO;
-//         xQueueSend(filaEstadoAtual, &estadoAtual, 0);
-//         break;
-
-//       case ESTEIRA_TRANSPORTANDO:
-//         Serial.println("[Status] Ligando Esteira e Medindo Caixa...");
-//         ligar_esteira();
-//         // Faz a leitura física do ultrassônico e classifica
-//         sensorDeCaixa(); 
-//         if(tamanhoCaixaMedida != 'X'){
-//           estadoAtual = AGUARDANDO_FIM_ESTEIRA;
-//           xQueueSend(filaEstadoAtual, &estadoAtual, 0);
-//         }
-//         break;
-
-//       case AGUARDANDO_FIM_ESTEIRA:
-//         if (leituraIR() == true) {
-//           desligar_esteira();
-//           estadoAtual = MANIPULADOR2_SEPARA_CAIXA;
-//           xQueueSend(filaEstadoAtual, &estadoAtual, 0);
-//         }
-//         break;
-
-//       case MANIPULADOR2_SEPARA_CAIXA:
-//         Serial.print("[Status] Separando caixa do tipo: ");
-//         Serial.println(tamanhoCaixaMedida);
+//       // Leitura da Temperatura (Controlada pela Interrupção)
+//       if (flagMedirTemperatura) {
+//         flagMedirTemperatura = false;
+//         int leituraADC = analogRead(LM35);
+//         float temp = ((leituraADC / 4095.0) * 3300.0) / 10.0;
         
-//         if(leituraIR() == true){
-//           if(tamanhoCaixaMedida == 'P'){
-//             colocarCaixaP();
+//         xSemaphoreTake(mutexDados, portMAX_DELAY);
+//         temperaturaAtual = temp;
+//         if (temperaturaAtual > 65.0) estadoEmergencia = true; // Incêndio
+//         xSemaphoreGive(mutexDados);
+//       }
+
+//       // Verifica Emergência (Pode vir do botão físico, do sensor ou da Web)
+//       xSemaphoreTake(mutexDados, portMAX_DELAY);
+//       bool emEmergencia = estadoEmergencia;
+//       xSemaphoreGive(mutexDados);
+
+//       if (emEmergencia) {
+//         xSemaphoreTake(mutexDados, portMAX_DELAY);
+//         estadoAtual = EM_EMERGENCIA;
+//         xSemaphoreGive(mutexDados);
+//       }
+
+//       switch (estadoAtual) {
+//         case AGUARDANDO_START:
+//           digitalWrite(buzzer, LOW);
+//           if (digitalRead(botaoIniciar) == HIGH) {
+//             xSemaphoreTake(mutexDados, portMAX_DELAY);
+//             estadoAtual = MANIPULADOR1_PEGA_CAIXA;
+//             xSemaphoreGive(mutexDados);
+//             while(digitalRead(botaoIniciar) == HIGH) { vTaskDelay(pdMS_TO_TICKS(10)); }
 //           }
-//           else if(tamanhoCaixaMedida == 'M'){
-//             colocarCaixaM();
+//           break;
+
+//         case MANIPULADOR1_PEGA_CAIXA:
+//           pegarCaixa();
+//           xSemaphoreTake(mutexDados, portMAX_DELAY);
+//           estadoAtual = ESTEIRA_TRANSPORTANDO;
+//           xSemaphoreGive(mutexDados);
+//           break;
+
+//         case ESTEIRA_TRANSPORTANDO:
+//           ligar_esteira();
+//           sensorDeCaixa(); 
+          
+//           xSemaphoreTake(mutexDados, portMAX_DELAY);
+//           tamanhoAtual = tamanhoCaixaMedida;
+//           xSemaphoreGive(mutexDados);
+
+//           if (tamanhoAtual != '-') {
+//             xSemaphoreTake(mutexDados, portMAX_DELAY);
+//             estadoAtual = AGUARDANDO_FIM_ESTEIRA;
+//             xSemaphoreGive(mutexDados);
 //           }
-//           else{
-//             colocarCaixaG();
+//           break;
+
+//         case AGUARDANDO_FIM_ESTEIRA:
+//           if (leituraIR() == true) {
+//             desligar_esteira();
+//             xSemaphoreTake(mutexDados, portMAX_DELAY);
+//             estadoAtual = MANIPULADOR2_SEPARA_CAIXA;
+//             xSemaphoreGive(mutexDados);
 //           }
+//           break;
+
+//         case MANIPULADOR2_SEPARA_CAIXA:
+//           xSemaphoreTake(mutexDados, portMAX_DELAY);
+//           tamanho = tamanhoCaixaMedida;
+//           xSemaphoreGive(mutexDados);
+
+//           if (tamanho == 'P') colocarCaixaP();
+//           else if (tamanho == 'M') colocarCaixaM();
+//           else if (tamanho == 'G') colocarCaixaG();
+          
+//           xSemaphoreTake(mutexDados, portMAX_DELAY);
 //           estadoAtual = RESETANDO_MAQUINA;
-//           xQueueSend(filaEstadoAtual, &estadoAtual, 0);
-//         }
-//         break;
+//           xSemaphoreGive(mutexDados);
+//           break;
 
-//       case RESETANDO_MAQUINA:
-//         zeraTudo();
-//         estadoAtual = AGUARDANDO_START;
-//         xQueueSend(filaEstadoAtual, &estadoAtual, 0);
-//         break;
-
-//       case EM_EMERGENCIA:
-//         desligar_esteira();
-//         digitalWrite(buzzer, HIGH);
-//         Serial.println("!!! SISTEMA EM PARADA DE EMERGENCIA !!!");
-//         // Só sai do loop de emergência se o botão for destravado/solto
-//         if (digitalRead(botaoEmergencia) == HIGH) { 
-//           estadoEmergencia = false;
+//         case RESETANDO_MAQUINA:
+//           zeraTudo();
+//           xSemaphoreTake(mutexDados, portMAX_DELAY);
 //           estadoAtual = AGUARDANDO_START;
-//           xQueueSend(filaEstadoAtual, &estadoAtual, 0);
-//           Serial.println("-> Sistema Reiniciado com Sucesso.");
-//         }
-//         break;
+//           xSemaphoreGive(mutexDados);
+//           break;
+
+//         case EM_EMERGENCIA:
+//           Serial.println("EMERGENCIA ATIVADA!");
+//           desligar_esteira();
+//           digitalWrite(buzzer, HIGH); 
+          
+//           while(estadoAtual == EM_EMERGENCIA) {
+//             // Serial.println("EMERGENCIA WHILE!!!");
+//             xSemaphoreTake(mutexDados, portMAX_DELAY);
+//             float tempCheck = temperaturaAtual;
+//             xSemaphoreGive(mutexDados);
+
+//             Serial.println(digitalRead(botaoEmergencia) == HIGH && tempCheck < 55.0);
+//             if (digitalRead(botaoEmergencia) == HIGH && tempCheck < 55.0) { 
+//               while(digitalRead(botaoEmergencia) == HIGH){}
+//               Serial.println("Saindo da emergencia!");
+//               Serial.println("EMERGENCIA DESATIVADA!");
+//               xSemaphoreTake(mutexDados, portMAX_DELAY);
+//               estadoEmergencia = false;
+//               estadoAtual = AGUARDANDO_START;
+//               xSemaphoreGive(mutexDados);
+//             }
+//           }
+//           break;
+//       }
+//       vTaskDelay(pdMS_TO_TICKS(50));
+//     }
+//   }
+
+//   // CORE 1 - Interface, display, RGB e WebServer
+//   void loop1(void *parameter) {
+//     Serial.println("CORE 1 INICIADO!");
+//     while (true) {
+//       server.handleClient(); // Roda o Servidor Web
+
+//       // ==========================================
+//       // 1. LEITURA SEGURA DE TODAS AS VARIÁVEIS
+//       // ==========================================
+//       xSemaphoreTake(mutexDados, portMAX_DELAY);
+//       EstadosSistema estadoLocal = estadoAtual;
+//       int pLocal = quantidadeCaixasP;
+//       int mLocal = quantidadeCaixasM;
+//       int gLocal = quantidadeCaixasG;
+//       char ultimaLocal = tamanhoCaixaMedida;
+//       float tempLocal = temperaturaAtual;
+//       xSemaphoreGive(mutexDados);
+
+//       // ==========================================
+//       // 2. ATUALIZA O LED RGB
+//       // ==========================================
+//       if (estadoLocal == EM_EMERGENCIA) {
+//         setCorRGB(255, 0, 0);     // Vermelho: Erro/Emergência
+//       } else if (estadoLocal == AGUARDANDO_START) {
+//         setCorRGB(0, 0, 255);     // Azul: Aguardando comando
+//       } else if (estadoLocal == ESTEIRA_TRANSPORTANDO || estadoLocal == MANIPULADOR1_PEGA_CAIXA || estadoLocal == MANIPULADOR2_SEPARA_CAIXA) {
+//         setCorRGB(255, 255, 0);   // Amarelo: Manipulação
+//       } else {
+//         setCorRGB(0, 255, 0);     // Verde: Normal
+//       }
+
+//       // ==========================================
+//       // 3. ATUALIZA O DISPLAY OLED
+//       // ==========================================
+//       display.clearDisplay();
+//       display.setTextSize(1);
+//       display.setTextColor(SSD1306_WHITE);
+
+//       display.setCursor(0, 0); display.println("UTFPR - MECHATRONICS"); 
+//       display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+//       display.setCursor(0, 13); display.print("IP: "); display.println(WiFi.localIP().toString()); 
+//       display.setCursor(0, 24); display.print("Stat: "); display.println(obterNomeEstado(estadoLocal)); 
+//       display.setCursor(0, 35); display.print("Temp: "); display.print(tempLocal, 1); display.println(" C"); 
+//       display.setCursor(0, 45); display.print("Ultima: "); display.println(ultimaLocal); 
+//       display.setCursor(0, 55);
+//       display.print("T:"); display.print(pLocal + mLocal + gLocal); 
+//       display.print("        P:"); display.print(pLocal);
+//       display.print(" M:"); display.print(mLocal);
+//       display.print(" G:"); display.print(gLocal);
+
+//       display.display();
+//       vTaskDelay(pdMS_TO_TICKS(100)); 
+//     }
+//   }
+
+//   // FUNÇÕES DA ESTEIRA E BRAÇOS
+//   void ligar_esteira() { 
+//     digitalWrite(dirPin, HIGH); 
+//     ledcWrite(0, 128); 
 //     }
 
-//     vTaskDelay(pdMS_TO_TICKS(100)); // Delay do FreeRTOS para não travar o processador
+//   void desligar_esteira() { 
+//     digitalWrite(dirPin, LOW); 
+//     ledcWrite(0, 0); 
+//     }
+
+//   bool leituraIR() { return (
+//     digitalRead(iri) == LOW); 
+//     }
+
+//   float medirDistancia() { 
+//     return distanceSensor.measureDistanceCm(); 
+//     }
+
+//   void sensorDeCaixa() {
+//     if (viACaixa == false) {
+//       float tamanho = medirDistancia();
+      
+//       // BLOQUEIA O MUTEX PARA ATUALIZAR OS DADOS
+//       xSemaphoreTake(mutexDados, portMAX_DELAY);
+//       if (tamanho < medidaCaixaG) {
+//         quantidadeCaixasG++;
+//         tamanhoCaixaMedida = 'G';
+//         viACaixa = true;
+//       } else if (tamanho < medidaCaixaM) {
+//         quantidadeCaixasM++;
+//         tamanhoCaixaMedida = 'M';
+//         viACaixa = true;
+//       } else if (tamanho < medidaCaixaP) {
+//         quantidadeCaixasP++;
+//         tamanhoCaixaMedida = 'P';      
+//         viACaixa = true;
+//       }
+//       xSemaphoreGive(mutexDados);
+//     }
 //   }
+
+//   void pegarCaixa() {
+//     braco11.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30));
+//     braco12.write(45); 
+//     braco13.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30));
+//     braco14.write(45);
+//   }
+
+//   void colocarCaixaP() { 
+//     braco21.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30)); 
+//     braco22.write(45); 
+//     braco23.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30)); 
+//     braco24.write(15); 
+//   }
+
+//   void colocarCaixaM() { 
+//     braco21.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30)); 
+//     braco22.write(45); 
+//     braco23.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30)); 
+//     braco24.write(45); 
+//     }
+
+//   void colocarCaixaG() { 
+//     braco21.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30)); 
+//     braco22.write(45); 
+//     braco23.write(45); 
+//     vTaskDelay(pdMS_TO_TICKS(30)); 
+//     braco24.write(75); 
+//   }
+
+//   void zeraTudo() {
+//     viACaixa = false;
+//     xSemaphoreTake(mutexDados, portMAX_DELAY);
+//     tamanhoCaixaMedida = '-';
+//     xSemaphoreGive(mutexDados);
+//     braco11.write(0); braco12.write(0); braco13.write(0); braco14.write(0);
+//     braco21.write(0); braco22.write(0); braco23.write(0); braco24.write(0);
+//   }
+
+//   void setCorRGB(int r, int g, int b) { 
+//     analogWrite(LED_R, r); 
+//     analogWrite(LED_G, g); 
+//     analogWrite(LED_B, b); 
+//   }
+
+// // INTERFACE WEB
+// void enviarPaginaWeb() {
+//   String html = "<!DOCTYPE html><html>";
+//   html += "<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
+//   html += "<title>Painel Esteira UTFPR</title>";
+//   html += "<style>body{font-family:Arial; text-align:center; background:#f4f4f4; margin:0; padding:20px;} ";
+//   html += ".card{background:white; padding:20px; margin:10px auto; max-width:450px; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);}";
+//   html += "h1{color:#333;} .status{font-weight:bold; color:blue;}";
+//   html += ".btn{padding:15px 25px; font-size:16px; margin:10px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;}";
+//   html += ".btn-danger{background-color:#d9534f; color:white;} .btn-danger:hover{background-color:#c9302c;}";
+//   html += ".danger-alert{background-color:#f2dede; color:#a94442; border:1px solid #ebccd1; padding:15px; border-radius:4px; margin-bottom:15px; font-weight:bold;}";
+//   html += "</style>";
+  
+//   html += "<script>setInterval(function() {";
+//   html += "  fetch('/dados').then(response => response.json()).then(data => {";
+//   html += "    document.getElementById('status').innerText = data.estado;";
+//   html += "    document.getElementById('temp').innerText = data.temperatura.toFixed(1);";
+//   html += "    document.getElementById('qtdP').innerText = data.p;";
+//   html += "    document.getElementById('qtdM').innerText = data.m;";
+//   html += "    document.getElementById('qtdG').innerText = data.g;";
+//   html += "    document.getElementById('total').innerText = data.p + data.m + data.g;";
+//   html += "    if(data.temperatura > 45.0 || data.estado.includes('EMERGENCIA')){";
+//   html += "      document.getElementById('alerta').style.display = 'block';";
+//   html += "    } else { document.getElementById('alerta').style.display = 'none'; }";
+//   html += "  });";
+//   html += "}, 1000);";
+//   html += "function dispararEmergenciaVirtual(){ fetch('/emergencia_virtual'); }</script>";
+  
+//   html += "</head><body>";
+//   html += "<h1>UTFPR - Sistema de Separacao</h1>";
+//   html += "<div id='alerta' class='card danger-alert' style='display:none;'>!!! ALERTA DE INCENDIO / EMERGENCIA !!!</div>";
+//   html += "<div class='card'><h2>Status: <span id='status'>Carregando...</span></h2><h3>Temperatura: <span id='temp'>0.0</span> C</h3></div>";
+//   html += "<div class='card'><h3>Contador de Caixas:</h3><p>Total: <b id='total'>0</b></p><p>Pequenas: <span id='qtdP'>0</span></p><p>Medias: <span id='qtdM'>0</span></p><p>Grandes: <span id='qtdG'>0</span></p></div>";
+//   html += "<div class='card'><button class='btn btn-danger' onclick='dispararEmergenciaVirtual()'>EMERGENCIA VIRTUAL</button></div>";
+//   html += "</body></html>";
+//   server.send(200, "text/html", html);
 // }
 
-// /*
-// ● Servidor Web;
-// ● Aplicativo móvel (quando utilizado);
-// ● Comunicação Wi-Fi;
-// ● Atualização do display OLED;    
-// ● Controle do LED RGB;          
-// ● Registro de eventos;          
-// ● Armazenamento de dados;
-// ● Supervisão geral do sistema.*/
+// void enviarDadosJSON() {
+//   // Pega a chave do Mutex rapidinho, monta o JSON e devolve a chave
+//   xSemaphoreTake(mutexDados, portMAX_DELAY);
+//   String json = "{";
+//   json += "\"estado\":\"" + obterNomeEstado(estadoAtual) + "\","; 
+//   json += "\"temperatura\":" + String(temperaturaAtual) + ",";
+//   json += "\"p\":" + String(quantidadeCaixasP) + ",";
+//   json += "\"m\":" + String(quantidadeCaixasM) + ",";
+//   json += "\"g\":" + String(quantidadeCaixasG);
+//   json += "}";
+//   xSemaphoreGive(mutexDados);
+  
+//   server.send(200, "application/json", json);
+// }
 
-// // Função auxiliar para traduzir o estado para texto no display
+// void tratarBotaoVirtualEmergencia() {
+//   xSemaphoreTake(mutexDados, portMAX_DELAY);
+//   estadoEmergencia = true;
+//   xSemaphoreGive(mutexDados);
+//   server.send(200, "text/plain", "Emergencia Ativada");
+// }
+
 // String obterNomeEstado(EstadosSistema estado) {
 //   switch(estado) {
 //     case AGUARDANDO_START: return "Aguardando Start";
 //     case MANIPULADOR1_PEGA_CAIXA: return "Pegando Caixa";
 //     case ESTEIRA_TRANSPORTANDO: return "Esteira Ligada";
-//     case AGUARDANDO_FIM_ESTEIRA: return "Aguardando Fim";
-//     case MANIPULADOR2_SEPARA_CAIXA: return "Separando...";
+//     case AGUARDANDO_FIM_ESTEIRA: return "Caixa em Curso";
+//     case MANIPULADOR2_SEPARA_CAIXA: return "Separando Caixa";
 //     case RESETANDO_MAQUINA: return "Resetando";
 //     case EM_EMERGENCIA: return "!!! EMERGENCIA !!!";
 //     default: return "Desconhecido";
 //   }
 // }
 
-// void loop1(void *parameter)
-// {
-//   Serial.println("Task1 Iniciada - Display e RGB");
-  
-//   char caixaRecebida = '-';
-//   EstadosSistema estadoRecebido = AGUARDANDO_START;
-
-//   while (true) {
-//     server.handleClient(); // Servidor Web
-//     // 1. VERIFICA SE CHEGOU UMA NOVA CAIXA
-//     if (xQueueReceive(filaCaixas, &caixaRecebida, 0) == pdPASS) {
-//       Serial.print("[Core 1] Nova caixa identificada: ");
-//       Serial.println(caixaRecebida);
-//     }
-
-//     // 2. VERIFICA SE O ESTADO DA MÁQUINA MUDOU
-//     if (xQueueReceive(filaEstadoAtual, &estadoRecebido, 0) == pdPASS) {
-//       // Atualiza as cores do LED RGB conforme a norma industrial
-//       if (estadoRecebido == EM_EMERGENCIA) {
-//         setCorRGB(255, 0, 0); // Vermelho (Erro)
-//       } else if (estadoRecebido == AGUARDANDO_START) {
-//         setCorRGB(0, 0, 255); // Azul (Pronto/Parado)
-//       } else if (estadoRecebido == ESTEIRA_TRANSPORTANDO) {
-//         setCorRGB(255, 255, 0); // Amarelo (Em movimento)
-//       } else {
-//         setCorRGB(0, 255, 0); // Verde (Atuadores operando)
-//       }
-//     }
-
-//     // 3. ATUALIZA O DISPLAY OLED
-//     display.clearDisplay();
-//     display.setTextSize(1);
-//     display.setTextColor(SSD1306_WHITE);
-
-//     // Cabeçalho
-//     display.setCursor(0, 0); 
-//     display.println("SISTEMA DE SEPARACAO");
-//     display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
-
-//     // Mostra o Estado Atual
-//     display.setCursor(0, 15);
-//     display.print("Status: ");
-//     display.println(obterNomeEstado(estadoRecebido));
-
-//     // Mostra a última caixa classificada
-//     display.setCursor(0, 30);
-//     display.print("Ultima Caixa: ");
-//     display.println(caixaRecebida);
-
-//     // Mostra os Contadores (lendo direto, pois é só leitura, mas o ideal 
-//     // no futuro seria passar por fila também se for muito crítico)
-//     display.setCursor(0, 45);
-//     display.print("P:"); display.print(quantidadeCaixasP);
-//     display.print(" M:"); display.print(quantidadeCaixasM);
-//     display.print(" G:"); display.println(quantidadeCaixasG);
-
-//     // Envia tudo para a tela
-//     display.display();
-
-//     // Delay de 100ms: Atualiza a tela a 10 frames por segundo (FPS)
-//     // Isso libera o Core 1 para cuidar do WebServer depois!
-//     vTaskDelay(pdMS_TO_TICKS(100)); 
-//   }
-// }
-
-// void ligar_esteira()
-// {
-//   digitalWrite(dirPin, HIGH);
-//   ledcWrite(0, 128);
-// }
-
-// void desligar_esteira()
-// {
-//   digitalWrite(dirPin, LOW);
-//   ledcWrite(0, 0);
-// }
-
-// bool leituraIR()
-// {
-//   int estadoIR = digitalRead(iri);
-//   if (estadoIR == LOW)
-//   {
-//     return true;
-//   }
-//   else
-//   {
-//     return false;
-//   }
-// }
-
-// float medirDistancia()
-// {
-//   return distanceSensor.measureDistanceCm();
-// }
-
-// void sensorDeCaixa(){
-//   if (viACaixa == false){
-//   float tamanho = medirDistancia();
-//     if (tamanho < medidaCaixaG)
-//     {
-//       quantidadeCaixasG++;
-//       tamanhoCaixaMedida = 'G';
-//       xQueueSend(filaCaixas, &quantidadeCaixasG, 0);
-//       viACaixa = true;
-//     }
-//     else if (tamanho < medidaCaixaM)
-//     {
-//       quantidadeCaixasM++;
-//       tamanhoCaixaMedida = 'M';
-//       xQueueSend(filaCaixas, &quantidadeCaixasM, 0);
-//       viACaixa = true;
-//     }
-//     else if (tamanho < medidaCaixaP)
-//     {
-//       quantidadeCaixasP++;
-//       tamanhoCaixaMedida = 'P';      
-//       xQueueSend(filaCaixas, &quantidadeCaixasP, 0);
-//       viACaixa = true;
-//     }
-//   }
-// }
-
-// void pegarCaixa(){
-//   braco11.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco12.write(45);
-//   braco13.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco14.write(45);
-// }
-
-// void colocarCaixaP(){
-//   braco21.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco22.write(45);
-//   braco23.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco24.write(15);
-// }
-// void colocarCaixaM(){
-//   braco21.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco22.write(45);
-//   braco23.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco24.write(45);
-// }
-// void colocarCaixaG(){
-//   braco21.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco22.write(45);
-//   braco23.write(45);
-//   vTaskDelay(pdMS_TO_TICKS(30));
-//   braco24.write(75);
-// }
-
-
-// void IRAM_ATTR emergencia(){
-//   estadoEmergencia = true;  // Não sei se isso funciona
-// }
-
-
-// void zeraTudo(){
-//   bracoOperando = false;
-//   caixaNaEsteira = false;
-//   viACaixa = false;
-
-//   braco11.write(0);
-//   braco12.write(0);
-//   braco13.write(0);
-//   braco14.write(0);
-
-//   braco21.write(0);
-//   braco22.write(0);
-//   braco23.write(0);
-//   braco24.write(0);
-
-//   tamanhoCaixaMedida = 'X';
-// }
 
 
 
-// void setCorRGB(int r, int g, int b) {
-//   analogWrite(LED_R, r);
-//   analogWrite(LED_G, g);
-//   analogWrite(LED_B, b);
-// }
-
-// // Função que envia a página HTML quando alguém acessa o IP do ESP32
-// void enviarPaginaWeb() {
-//   String html = "<!DOCTYPE html><html>";
-//   html += "<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
-//   html += "<title>Painel Esteira UTFPR</title>";
-//   html += "<style>body{font-family:Arial; text-align:center; background:#f4f4f4;} ";
-//   html += ".card{background:white; padding:20px; margin:10px auto; max-width:400px; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);}";
-//   html += "h1{color:#333;} .status{font-weight:bold; color:blue;}</style>";
-  
-//   // Script JavaScript que atualiza os dados da tela automaticamente a cada 1 segundo
-//   html += "<script>setInterval(function() {";
-//   html += "  fetch('/dados').then(response => response.json()).then(data => {";
-//   html += "    document.getElementById('status').innerText = data.estado;";
-//   html += "    document.getElementById('qtdP').innerText = data.p;";
-//   html += "    document.getElementById('qtdM').innerText = data.m;";
-//   html += "    document.getElementById('qtdG').innerText = data.g;";
-//   html += "  });";
-//   html += "}, 1000);</script>";
-  
-//   html += "</head><body>";
-//   html += "<h1>UTFPR - Sistema de Classificação</h1>";
-//   html += "<div class='card'><h2>Status: <span id='status'>Carregando...</span></h2></div>";
-//   html += "<div class='card'>";
-//   html += "  <h3>Contador de Caixas:</h3>";
-//   html += "  <p>Pequenas: <span id='qtdP'>0</span></p>";
-//   html += "  <p>Médias: <span id='qtdM'>0</span></p>";
-//   html += "  <p>Grandes: <span id='qtdG'>0</span></p>";
-//   html += "</div>";
-//   html += "</body></html>";
-
-//   server.send(200, "text/html", html);
-// }
-
-// // Função que envia apenas os números das caixas e o estado para o JavaScript atualizar na tela
-// void enviarDadosJSON() {
-//   String json = "{";
-//   json += "\"estado\":\"" + obterNomeEstado(estadoAtual) + "\","; // Usa a função de texto que criamos antes
-//   json += "\"p\":" + String(quantidadeCaixasP) + ",";
-//   json += "\"m\":" + String(quantidadeCaixasM) + ",";
-//   json += "\"g\":" + String(quantidadeCaixasG);
-//   json += "}";
-  
-//   server.send(200, "application/json", json);
-// }
