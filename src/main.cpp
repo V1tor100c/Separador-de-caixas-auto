@@ -41,6 +41,7 @@ const int LM35 = 36; // VP Pin no ESP32 (ADC1_CH0)
 const int LED_R = 5;
 const int LED_G = 18;
 const int LED_B = 19;
+const int transistor = 26;
 
 // --- VARIÁVEIS COMPARTILHADAS (Protegidas pelo Mutex) ---
 int quantidadeCaixasP = 0;
@@ -122,9 +123,14 @@ void setup() {
   pinMode(LED_R, OUTPUT);
   pinMode(LED_G, OUTPUT);
   pinMode(LED_B, OUTPUT);
+  pinMode(transistor, OUTPUT);
   pinMode(buzzer, OUTPUT);
   pinMode(LM35, INPUT);
 
+  digitalWrite(transistor, HIGH);
+  digitalWrite(LED_R, LOW);
+  digitalWrite(LED_G, LOW);
+  digitalWrite(LED_B, LOW);
   digitalWrite(buzzer, LOW);
   setCorRGB(0, 0, 255); // Azul: Inicializando
 
@@ -169,8 +175,8 @@ void setup() {
 
   pinMode(iri, INPUT);
 
-  braco11.attach(30, 500, 2400); braco12.attach(31, 500, 2400);
-  braco13.attach(32, 500, 2400); braco14.attach(39, 500, 2400);
+  braco11.attach(13, 500, 2400); braco12.attach(12, 500, 2400);
+  braco13.attach(5, 500, 2400);  braco14.attach(4, 500, 2400);
 
   braco21.attach(34, 500, 2400); braco22.attach(35, 500, 2400);
   braco23.attach(36, 500, 2400); braco24.attach(37, 500, 2400);
@@ -353,7 +359,7 @@ void loop1(void *parameter) {
     display.setCursor(0, 45); display.print("Ultima: "); display.println(ultimaLocal); 
     display.setCursor(0, 55);
     display.print("T:"); display.print(pLocal + mLocal + gLocal); 
-    display.print("      P:"); display.print(pLocal);
+    display.print("    P:"); display.print(pLocal);
     display.print(" M:"); display.print(mLocal);
     display.print(" G:"); display.print(gLocal);
 
