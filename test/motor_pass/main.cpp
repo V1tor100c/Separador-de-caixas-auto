@@ -1,8 +1,8 @@
 #include <Arduino.h>
 
-const int stepPin = 25;
-const int dirPin = 26;
-const int frequenciaMotor = 200;
+const int stepPin = 16;
+const int dirPin = 4;
+const int frequenciaMotor = 120;
 
 void ligar_esteira();
 void desligar_esteira();
@@ -12,23 +12,25 @@ void setup(){
 
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
-  digitalWrite(stepPin, LOW);
+  // digitalWrite(stepPin, LOW);
   digitalWrite(dirPin, LOW);
   ledcSetup(0, frequenciaMotor, 8);
   ledcAttachPin(stepPin, 0);
 }
 
 void loop(){
+  // digitalWrite(stepPin, HIGH);
+  // Serial.println("");
+  // delay(100);
+  // digitalWrite(stepPin, LOW);
+  // delay(100);
   ligar_esteira();
-  delay(3000);
 }
 
 void ligar_esteira(){
-  digitalWrite(dirPin, HIGH);
   ledcWrite(0, 128);
 }
 
 void desligar_esteira(){
-  digitalWrite(dirPin, LOW);
   ledcWrite(0, 0);
 }

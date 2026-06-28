@@ -18,19 +18,23 @@ WebServer server(80);
 #define OLED_ADDR 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-const int stepPin = 15;
+const int stepPin = 16;
 const int dirPin = 4;
 const int frequenciaMotor = 70;
 
-const int pino_trigger = 5;
-const int pino_echo = 2;
+const int pino_trigger = 2;
+const int pino_echo = 15;
 UltraSonicDistanceSensor distanceSensor(pino_trigger, pino_echo);
 
 const int iri = 14;
 bool estadoIR = false;
 
+const int pinbraco11 = 13;  //garra
+const int pinbraco12 = 19;  //direita
+const int pinbraco13 = 12;  //esquerda
+const int pinbraco14 = 5;   // baixo 
+
 Servo braco11, braco12, braco13, braco14;
-Servo braco21, braco22, braco23, braco24;
 
 const int botaoIniciar = 33;
 const int botaoEmergencia = 34;
@@ -56,7 +60,7 @@ enum EstadosSistema {
   AGUARDANDO_START,
   MANIPULADOR1_PEGA_CAIXA,
   ESTEIRA_TRANSPORTANDO,
-  AGUARDANDO_FIM_ESTEIRA,
+  AGUARDANDO_FIM_ESTEIRA, 
   MANIPULADOR2_SEPARA_CAIXA,
   RESETANDO_MAQUINA,
   EM_EMERGENCIA
@@ -64,10 +68,10 @@ enum EstadosSistema {
 EstadosSistema estadoAtual = AGUARDANDO_START;
 // --------------------------------------------------------
 
-int medidaSemCaixa = 15;
-int medidaCaixaP = 12;
-int medidaCaixaM = 10;
-int medidaCaixaG = 8;
+int medidaSemCaixa = 9;
+int medidaCaixaP = 6;
+int medidaCaixaM = 5;
+int medidaCaixaG = 4;
 bool viACaixa = false;
 char tamanho;
 char tamanhoAtual;
@@ -175,21 +179,25 @@ void setup() {
 
   pinMode(iri, INPUT);
 
-  braco11.attach(13, 500, 2400); braco12.attach(12, 500, 2400);
-  braco13.attach(5, 500, 2400);  braco14.attach(4, 500, 2400);
-
-  braco21.attach(34, 500, 2400); braco22.attach(35, 500, 2400);
-  braco23.attach(36, 500, 2400); braco24.attach(37, 500, 2400);
+  braco11.attach(pinbraco11, 500, 2400); 
+  braco12.attach(pinbraco11, 500, 2400);
+  braco13.attach(pinbraco13, 500, 2400);  
+  braco14.attach(pinbraco14, 500, 2400);
 
   // Criação das tarefas
   xTaskCreatePinnedToCore(loop0, "Task0", 10000, NULL, 1, NULL, 0); // Core 0
   xTaskCreatePinnedToCore(loop1, "Task1", 10000, NULL, 1, NULL, 1); // Core 1
+
+  // Configuração de Teste
+  pinMode(15, OUTPUT);
+  digitalWrite(15, HIGH);
 }
 
 void loop() {}
 
 // CORE 0 - Controle e Sensores em Tempo Real
 void loop0(void *parameter) {
+  // estadoAtual = ESTEIRA_TRANSPORTANDO;
   Serial.println("CORE 0 INICIADO!");
   while (true) {
     
@@ -253,7 +261,7 @@ void loop0(void *parameter) {
         break;
 
       case ESTEIRA_TRANSPORTANDO:
-        Serial.println("ESTEIRA TRANSPORTANDO!");
+        // Serial.println("ESTEIRA TRANSPORTANDO!");
         ligar_esteira();
         sensorDeCaixa(); 
         
@@ -308,7 +316,8 @@ void loop0(void *parameter) {
         break;
     }
     
-    // Essencial para o Watchdog Timer não resetar o ESP32!
+    // Essencial para o Watchdog Timer não resetar o tamanhoF = medirDistancia();
+    // Serial ESP32
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
@@ -386,71 +395,140 @@ float medirDistancia() {
 }
 
 void sensorDeCaixa() {
-  if (viACaixa == false) {
-    float tamanho = medirDistancia();
-    
-    // BLOQUEIA O MUTEX PARA ATUALIZAR OS DADOS
-    xSemaphoreTake(mutexDados, portMAX_DELAY);
-    if (tamanho < medidaCaixaG) {
-      quantidadeCaixasG++;
-      tamanhoCaixaMedida = 'G';
-      viACaixa = true;
-    } else if (tamanho < medidaCaixaM) {
-      quantidadeCaixasM++;
-      tamanhoCaixaMedida = 'M';
-      viACaixa = true;
-    } else if (tamanho < medidaCaixaP) {
-      quantidadeCaixasP++;
-      tamanhoCaixaMedida = 'P';      
-      viACaixa = true;
-    }
-    xSemaphoreGive(mutexDados);
+  // Se já detectou uma caixa nesta passagem, não faz nada
+  if (viACaixa) return;
+
+  // Lê a distância (em cm)
+  float distancia = medirDistancia();
+
+  // 1. Ignora leitura inválida (erro do sensor)
+  if (distancia == -1) {
+    Serial.println("Erro na leitura do ultrassom");
+    return;
   }
+
+  // 2. Ignora se for a distância de "sem caixa" (com margem de 0,5 cm)
+  //    Ex: se medidaSemCaixa = 9, considera sem caixa se >= 8,5 cm
+  if (distancia >= (medidaSemCaixa - 0.5)) {
+    // Sem caixa → não faz nada
+    return;
+  }
+
+  // 3. Classifica o tamanho da caixa
+  char tipo = '-';
+  if (distancia < medidaCaixaG) {        // menor distância → caixa GRANDE
+    tipo = 'G';
+    Serial.print("CAIXA GRANDE: ");
+    Serial.println(distancia);
+  } else if (distancia < medidaCaixaM) { // distância média → caixa MÉDIA
+    tipo = 'M';
+    Serial.print("CAIXA MÉDIA: ");
+    Serial.println(distancia);
+  } else if (distancia < medidaCaixaP) { // distância maior → caixa PEQUENA
+    tipo = 'P';
+    Serial.print("CAIXA PEQUENA: ");  
+    Serial.println(distancia);
+  } else {
+    // Se a distância não se encaixar em nenhuma faixa, provavelmente é ruído
+    return;
+  }
+
+  // 4. Atualiza os contadores e a variável global (protegido por mutex)
+  xSemaphoreTake(mutexDados, portMAX_DELAY);
+  tamanhoCaixaMedida = tipo;
+  if (tipo == 'P') {
+    quantidadeCaixasP++;
+  } else if (tipo == 'M') {
+    quantidadeCaixasM++;
+  } else if (tipo == 'G') {
+    quantidadeCaixasG++;
+  }
+  xSemaphoreGive(mutexDados);
+
+  // Marca que a caixa foi detectada (evita repetições)
+  viACaixa = true;
+
+  // Exibe no Serial qual caixa foi vista (útil para debug)
+  Serial.print("Caixa detectada: ");
+  Serial.println(tipo);
 }
 
+// void sensorDeCaixa() {
+//   if (viACaixa == false) {
+//     float tamanhoF = medirDistancia();
+//     Serial.print("Caixa de tamanhoooooooooooooooooo: "); Serial.print(tamanhoF); Serial.println(" cm");
+    
+//     // BLOQUEIA O MUTEX PARA ATUALIZAR OS DADOS
+//     xSemaphoreTake(mutexDados, portMAX_DELAY);
+//     if (tamanhoF == -1){
+//       sensorDeCaixa();
+//       Serial.println("CAIXA NAO DETECTADAaaaaaaaaaaaaaaaaaaaaaaaaaa");
+//       delay(250);
+//     }
+//     else if (tamanhoF < medidaCaixaG) {
+//       quantidadeCaixasG++;
+//       tamanhoCaixaMedida = 'G';
+//       viACaixa = true;
+//     } else if (tamanhoF < medidaCaixaM) {
+//       quantidadeCaixasM++;
+//       tamanhoCaixaMedida = 'M';
+//       viACaixa = true;
+//     } else if (tamanhoF < medidaCaixaP) {
+//       quantidadeCaixasP++;
+//       tamanhoCaixaMedida = 'P';      
+//       viACaixa = true;
+//     }
+//     xSemaphoreGive(mutexDados);
+//   }
+// }
+
 void pegarCaixa() {
-  braco11.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30));
-  braco12.write(45); 
-  braco13.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30));
-  braco14.write(45);
+  // braco11.write(0);
+  // delay(500);
+  // braco11.write(20);
+  // delay(1000);
+
+  // braco11.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(300));
+  // braco12.write(45); 
+  // braco13.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(300));
+  // braco14.write(45);
 }
 
 void colocarCaixaP() { 
-  braco21.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30)); 
-  braco22.write(45); 
-  braco23.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30)); 
-  braco24.write(15); 
+  // braco21.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(30)); 
+  // braco22.write(45); 
+  // braco23.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(30)); 
+  // braco24.write(15); 
 }
 
 void colocarCaixaM() { 
-  braco21.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30)); 
-  braco22.write(45); 
-  braco23.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30)); 
-  braco24.write(45); 
+  // braco21.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(30)); 
+  // braco22.write(45); 
+  // braco23.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(30)); 
+  // braco24.write(45); 
 }
 
 void colocarCaixaG() { 
-  braco21.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30)); 
-  braco22.write(45); 
-  braco23.write(45); 
-  vTaskDelay(pdMS_TO_TICKS(30)); 
-  braco24.write(75); 
+  // braco21.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(30)); 
+  // braco22.write(45); 
+  // braco23.write(45); 
+  // vTaskDelay(pdMS_TO_TICKS(30)); 
+  // braco24.write(75); 
 }
 
 void zeraTudo() {
   viACaixa = false;
   xSemaphoreTake(mutexDados, portMAX_DELAY);
-  tamanhoCaixaMedida = '-';
+  
   xSemaphoreGive(mutexDados);
-  braco11.write(0); braco12.write(0); braco13.write(0); braco14.write(0);
-  braco21.write(0); braco22.write(0); braco23.write(0); braco24.write(0);
+  braco11.write(27); braco12.write(25); braco13.write(33); braco14.write(32);
 }
 
 void setCorRGB(int r, int g, int b) { 
