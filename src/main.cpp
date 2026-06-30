@@ -36,7 +36,7 @@ Servo braco11, braco12, braco13, braco14;
 const int trigPin = 17;
 const int echoPin = 12;
 
-const int trigPinFim = 18;
+const int trigPinFim = 2;
 const int echoPinFim = 13;
 
 const int botaoIniciar = 33;
@@ -133,7 +133,7 @@ void setup() {
   pinMode(buzzer, OUTPUT);
   pinMode(LM35, INPUT);
 
-  digitalWrite(transistor, LOW);
+  digitalWrite(transistor, HIGH);
   digitalWrite(buzzer, LOW);
   setCorRGB(0, 0, 255); 
 
@@ -415,109 +415,60 @@ float medirDistancia() {
   return distanceCm;
 }
 
-// void sensorDeCaixa() {
-//   if (viACaixa) return;
-
-//   // 1. PRIMEIRA LEITURA: O sensor sentiu alguma coisa? (A quina chegou)
-//   float distancia = medirDistancia();
-
-//   // Ignora erros ou ruídos colados no sensor
-//   if (distancia == -1 || distancia <= 1.0) {
-//     return;
-//   }
-
-//   // Se for maior que a medida vazia, não tem caixa
-//   if (distancia >= (medidaSemCaixa - 0.5)) {
-//     return;
-//   }
-
-//   // ==========================================
-//   // --- QUINA DA CAIXA DETECTADA ---
-//   // ==========================================
-//   Serial.println("Quina da caixa detectada. Aguardando alinhamento...");
-  
-//   // 2. PAUSA ESTRATÉGICA: Espera a esteira trazer a caixa para o centro do sensor.
-//   // ATENÇÃO: Ajuste esse valor (ex: 300, 400, 500) conforme a velocidade da sua esteira!
-//   vTaskDelay(pdMS_TO_TICKS(350)); 
-
-//   // 3. SEGUNDA LEITURA: Agora medindo o centro (barriga) da caixa
-//   distancia = medirDistancia();
-
-//   // Refaz a verificação de segurança, vai que a caixa já passou ou foi alarme falso
-//   if (distancia == -1 || distancia >= (medidaSemCaixa - 0.5)) {
-//     Serial.println("Erro: A caixa escapou da leitura ou foi alarme falso.");
-//     return; 
-//   }
-
-//   // ==========================================
-//   // --- CLASSIFICAÇÃO COM DADO CONFIÁVEL ---
-//   // ==========================================
-//   char tipo = '-';
-//   if (distancia < medidaCaixaG) {        
-//     tipo = 'G';
-//     Serial.print("CAIXA GRANDE: ");
-//   } else if (distancia < medidaCaixaM) { 
-//     tipo = 'M';
-//     Serial.print("CAIXA MÉDIA: ");
-//   } else if (distancia < medidaCaixaP) { 
-//     tipo = 'P';
-//     Serial.print("CAIXA PEQUENA: ");  
-//   } else {
-//     return; // Medida inválida (menor que vazia, maior que P)
-//   }
-
-//   Serial.println(distancia); // Mostra a distância final estabilizada
-
-//   // Salva no Mutex
-//   xSemaphoreTake(mutexDados, portMAX_DELAY);
-//   tamanhoCaixaMedida = tipo;
-//   if (tipo == 'P') {
-//     quantidadeCaixasP++;
-//   } else if (tipo == 'M') {
-//     quantidadeCaixasM++;
-//   } else if (tipo == 'G') {
-//     quantidadeCaixasG++;
-//   }
-//   xSemaphoreGive(mutexDados);
-
-//   // Trava para não ler a mesma caixa duas vezes
-//   viACaixa = true;
-
-//   Serial.print("Caixa detectada e salva: ");
-//   Serial.println(tipo);
-// }
-
-// CORREÇÃO: Adicionado filtro de ruído (distancia <= 1.0) para não pular de estado sozinho
 void sensorDeCaixa() {
   if (viACaixa) return;
 
+  // 1. PRIMEIRA LEITURA: O sensor sentiu alguma coisa? (A quina chegou)
   float distancia = medirDistancia();
 
+  // Ignora erros ou ruídos colados no sensor
   if (distancia == -1 || distancia <= 1.0) {
     return;
   }
 
+  // Se for maior que a medida vazia, não tem caixa
   if (distancia >= (medidaSemCaixa - 0.5)) {
     return;
   }
 
+  // ==========================================
+  // --- QUINA DA CAIXA DETECTADA ---
+  // ==========================================
+  Serial.println("Quina da caixa detectada. Aguardando alinhamento...");
+  
+  // 2. PAUSA ESTRATÉGICA: Espera a esteira trazer a caixa para o centro do sensor.
+  // ATENÇÃO: Ajuste esse valor (ex: 300, 400, 500) conforme a velocidade da sua esteira!
+  vTaskDelay(pdMS_TO_TICKS(350)); 
+
+  // 3. SEGUNDA LEITURA: Agora medindo o centro (barriga) da caixa
+  distancia = medirDistancia();
+
+  // Refaz a verificação de segurança, vai que a caixa já passou ou foi alarme falso
+  if (distancia == -1 || distancia >= (medidaSemCaixa - 0.5)) {
+    Serial.println("Erro: A caixa escapou da leitura ou foi alarme falso.");
+    return; 
+  }
+
+  // ==========================================
+  // --- CLASSIFICAÇÃO COM DADO CONFIÁVEL ---
+  // ==========================================
   char tipo = '-';
   if (distancia < medidaCaixaG) {        
     tipo = 'G';
     Serial.print("CAIXA GRANDE: ");
-    Serial.println(distancia);
   } else if (distancia < medidaCaixaM) { 
     tipo = 'M';
     Serial.print("CAIXA MÉDIA: ");
-    Serial.println(distancia);
   } else if (distancia < medidaCaixaP) { 
     tipo = 'P';
     Serial.print("CAIXA PEQUENA: ");  
-    Serial.println(distancia);
   } else {
-    return;
+    return; // Medida inválida (menor que vazia, maior que P)
   }
 
+  Serial.println(distancia); // Mostra a distância final estabilizada
+
+  // Salva no Mutex
   xSemaphoreTake(mutexDados, portMAX_DELAY);
   tamanhoCaixaMedida = tipo;
   if (tipo == 'P') {
@@ -529,11 +480,60 @@ void sensorDeCaixa() {
   }
   xSemaphoreGive(mutexDados);
 
+  // Trava para não ler a mesma caixa duas vezes
   viACaixa = true;
 
-  Serial.print("Caixa detectada: ");
+  Serial.print("Caixa detectada e salva: ");
   Serial.println(tipo);
 }
+
+// CORREÇÃO: Adicionado filtro de ruído (distancia <= 1.0) para não pular de estado sozinho
+// void sensorDeCaixa() {
+//   if (viACaixa) return;
+
+//   float distancia = medirDistancia();
+
+//   if (distancia == -1 || distancia <= 1.0) {
+//     return;
+//   }
+
+//   if (distancia >= (medidaSemCaixa - 0.5)) {
+//     return;
+//   }
+
+//   char tipo = '-';
+//   if (distancia < medidaCaixaG) {        
+//     tipo = 'G';
+//     Serial.print("CAIXA GRANDE: ");
+//     Serial.println(distancia);
+//   } else if (distancia < medidaCaixaM) { 
+//     tipo = 'M';
+//     Serial.print("CAIXA MÉDIA: ");
+//     Serial.println(distancia);
+//   } else if (distancia < medidaCaixaP) { 
+//     tipo = 'P';
+//     Serial.print("CAIXA PEQUENA: ");  
+//     Serial.println(distancia);
+//   } else {
+//     return;
+//   }
+
+//   xSemaphoreTake(mutexDados, portMAX_DELAY);
+//   tamanhoCaixaMedida = tipo;
+//   if (tipo == 'P') {
+//     quantidadeCaixasP++;
+//   } else if (tipo == 'M') {
+//     quantidadeCaixasM++;
+//   } else if (tipo == 'G') {
+//     quantidadeCaixasG++;
+//   }
+//   xSemaphoreGive(mutexDados);
+
+//   viACaixa = true;
+
+//   Serial.print("Caixa detectada: ");
+//   Serial.println(tipo);
+// }
 
 void pegarCaixa() {}
 
@@ -572,47 +572,127 @@ void setCorRGB(int r, int g, int b) {
 
 // CORREÇÃO: Adicionado botão HTML de "Iniciar Máquina" com estilização integrada
 void enviarPaginaWeb() {
-  String html = "<!DOCTYPE html><html>";
-  html += "<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<title>Painel Esteira UTFPR</title>";
-  html += "<style>body{font-family:Arial; text-align:center; background:#f4f4f4; margin:0; padding:20px;} ";
-  html += ".card{background:white; padding:20px; margin:10px auto; max-width:450px; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1);}";
-  html += "h1{color:#333;} .status{font-weight:bold; color:blue;}";
-  html += ".btn{padding:15px 25px; font-size:16px; margin:10px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;}";
-  html += ".btn-danger{background-color:#d9534f; color:white;} .btn-danger:hover{background-color:#c9302c;}";
-  html += ".btn-success{background-color:#5cb85c; color:white;} .btn-success:hover{background-color:#4cae4c;}";
-  html += ".danger-alert{background-color:#f2dede; color:#a94442; border:1px solid #ebccd1; padding:15px; border-radius:4px; margin-bottom:15px; font-weight:bold;}";
-  html += "</style>";
+  // O comando R"rawliteral(...)rawliteral" permite colar blocos inteiros de texto sem precisar usar aspas e sinais de mais!
+  String html = R"rawliteral(
+<!DOCTYPE html><html>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Painel Esteira UTFPR</title>
   
-  html += "<script>setInterval(function() {";
-  html += "  fetch('/dados').then(response => response.json()).then(data => {";
-  html += "    document.getElementById('status').innerText = data.estado;";
-  html += "    document.getElementById('temp').innerText = data.temperatura.toFixed(1);";
-  html += "    document.getElementById('qtdP').innerText = data.p;";
-  html += "    document.getElementById('qtdM').innerText = data.m;";
-  html += "    document.getElementById('qtdG').innerText = data.g;";
-  html += "    document.getElementById('total').innerText = data.p + data.m + data.g;";
-  html += "    if(data.temperatura > 45.0 || data.estado.includes('EMERGENCIA')){";
-  html += "      document.getElementById('alerta').style.display = 'block';";
-  html += "    } else { document.getElementById('alerta').style.display = 'none'; }";
-  html += "  });";
-  html += "}, 1000);";
-  html += "function dispararEmergenciaVirtual(){ fetch('/emergencia_virtual'); }";
-  html += "function dispararIniciarVirtual(){ fetch('/iniciar_virtual'); }";
-  html += "</script>";
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   
-  html += "</head><body>";
-  html += "<h1>UTFPR - Sistema de Separacao</h1>";
-  html += "<div id='alerta' class='card danger-alert' style='display:none;'>!!! ALERTA DE INCENDIO / EMERGENCIA !!!</div>";
-  html += "<div class='card'><h2>Status: <span id='status'>Carregando...</span></h2><h3>Temperatura: <span id='temp'>0.0</span> C</h3></div>";
-  html += "<div class='card'><h3>Contador de Caixas:</h3><p>Total: <b id='total'>0</b></p><p>Pequenas: <span id='qtdP'>0</span></p><p>Medias: <span id='qtdM'>0</span></p><p>Grandes: <span id='qtdG'>0</span></p></div>";
+  <style>
+    body{font-family:Arial, sans-serif; text-align:center; background:#eef2f5; margin:0; padding:20px;}
+    .card{background:white; padding:20px; margin:10px auto; max-width:480px; border-radius:10px; box-shadow:0 5px 15px rgba(0,0,0,0.1);}
+    h1{color:#2c3e50;} .status{font-weight:bold; color:blue;}
+    .btn{padding:15px 25px; font-size:16px; margin:10px; border:none; border-radius:5px; cursor:pointer; font-weight:bold; width: 45%; transition: 0.2s;}
+    .btn-danger{background-color:#e74c3c; color:white;} .btn-danger:hover{background-color:#c0392b;}
+    .btn-success{background-color:#2ecc71; color:white;} .btn-success:hover{background-color:#27ae60;}
+    .danger-alert{background-color:#ffcccc; color:#cc0000; border:2px solid #cc0000; padding:15px; border-radius:5px; margin-bottom:15px; font-weight:bold; text-transform: uppercase; animation: blink 1s infinite;}
+    
+    /* Layout das estatísticas */
+    .stats-container { display: flex; justify-content: space-between; margin: 15px 0;}
+    .stat-box { background: #f8f9fa; border-left: 4px solid #3498db; padding: 10px; width: 30%; border-radius: 5px; box-sizing: border-box;}
+    .stat-box.m { border-left-color: #f1c40f; }
+    .stat-box.g { border-left-color: #e67e22; }
+    .stat-box span { display: block; font-size: 24px; font-weight: bold; color: #333;}
+    .stat-box small { color: #7f8c8d; font-size: 14px;}
+    
+    @keyframes blink { 50% { opacity: 0.5; } }
+  </style>
+</head>
+<body>
+  <h1>UTFPR - Sistema de Separação</h1>
+  <div id='alerta' class='card danger-alert' style='display:none;'>⚠ ALERTA DE EMERGÊNCIA ⚠</div>
   
-  html += "<div class='card'>";
-  html += "<button class='btn btn-success' onclick='dispararIniciarVirtual()'>INICIAR MÁQUINA</button>";
-  html += "<button class='btn btn-danger' onclick='dispararEmergenciaVirtual()'>EMERGÊNCIA</button>";
-  html += "</div>";
+  <div class='card'>
+    <h2>Status: <span id='status' style='color:#3498db;'>Carregando...</span></h2>
+    <h3>Temperatura do Motor: <span id='temp'>0.0</span> °C</h3>
+  </div>
   
-  html += "</body></html>";
+  <div class='card'>
+    <h3 style="margin-top: 0;">Estatísticas de Produção</h3>
+    <p style="font-size: 18px;">Total Processado: <b id='total'>0</b> caixas</p>
+    
+    <div class="stats-container">
+      <div class="stat-box">Pequena<span id='qtdP'>0</span><small id='percP'>0%</small></div>
+      <div class="stat-box m">Média<span id='qtdM'>0</span><small id='percM'>0%</small></div>
+      <div class="stat-box g">Grande<span id='qtdG'>0</span><small id='percG'>0%</small></div>
+    </div>
+    
+    <div style="position: relative; height:200px; width:100%;">
+      <canvas id="graficoProducao"></canvas>
+    </div>
+  </div>
+  
+  <div class='card'>
+    <button class='btn btn-success' onclick='dispararIniciarVirtual()'>INICIAR</button>
+    <button class='btn btn-danger' onclick='dispararEmergenciaVirtual()'>EMERGENCIA</button>
+  </div>
+  
+  <script>
+    // 1. Cria e configura o gráfico estilo "Rosquinha" (Doughnut)
+    const ctx = document.getElementById('graficoProducao').getContext('2d');
+    const grafico = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Pequena', 'Média', 'Grande'],
+            datasets: [{
+                data: [0, 0, 0],
+                backgroundColor: ['#3498db', '#f1c40f', '#e67e22'],
+                borderWidth: 1
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    // 2. Fica pedindo os dados para o ESP32 a cada 1 segundo (1000ms)
+    setInterval(function() {
+      fetch('/dados').then(response => response.json()).then(data => {
+        
+        // Atualiza Status e Temperatura
+        document.getElementById('status').innerText = data.estado;
+        document.getElementById('temp').innerText = data.temperatura.toFixed(1);
+        
+        // Calcula o total
+        let total = data.p + data.m + data.g;
+        document.getElementById('total').innerText = total;
+        
+        // Calcula as porcentagens evitando dividir por zero
+        let percP = total > 0 ? ((data.p / total) * 100).toFixed(1) : 0;
+        let percM = total > 0 ? ((data.m / total) * 100).toFixed(1) : 0;
+        let percG = total > 0 ? ((data.g / total) * 100).toFixed(1) : 0;
+        
+        // Joga as quantidades e porcentagens na tela
+        document.getElementById('qtdP').innerText = data.p;
+        document.getElementById('percP').innerText = percP + "%";
+        document.getElementById('qtdM').innerText = data.m;
+        document.getElementById('percM').innerText = percM + "%";
+        document.getElementById('qtdG').innerText = data.g;
+        document.getElementById('percG').innerText = percG + "%";
+        
+        // Atualiza a animação do Gráfico
+        grafico.data.datasets[0].data = [data.p, data.m, data.g];
+        grafico.update();
+
+        // Lógica da tela de emergência piscante
+        if(data.temperatura > 45.0 || data.estado.includes('EMERGENCIA')){
+          document.getElementById('alerta').style.display = 'block';
+        } else { 
+          document.getElementById('alerta').style.display = 'none'; 
+        }
+      });
+    }, 1000);
+    
+    // Funções dos botões virtuais
+    function dispararEmergenciaVirtual(){ fetch('/emergencia_virtual'); }
+    function dispararIniciarVirtual(){ fetch('/iniciar_virtual'); }
+  </script>
+</body>
+</html>
+  )rawliteral";
+  
   server.send(200, "text/html", html);
 }
 
