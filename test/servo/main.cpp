@@ -89,17 +89,17 @@ void setup() {
 
 void loop() {
 
-  // basePegaCaixa();
-  // delay(1000);
+  basePegaCaixa();
+  delay(1000);
   abaixaCaixa();
-  // // delay(1000);
-  // garraPegaCaixa();
+  delay(1000);
+  garraPegaCaixa();
   delay(1000);
   levantaCaixa();
-  // // delay(1000);
-  // baseEsteira();
-  // // delay(1000);
-  // garraLargar();
+  delay(1000);
+  baseEsteira();
+  delay(1000);
+  garraLargar();
   delay(5000);
 
 
