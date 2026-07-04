@@ -32,8 +32,10 @@ const int pinServoBase =  15;   // baixo
 
 Servo servoGarra, servoDireita, servoEsquerda, servoBase;
 
-const int trigPin = 17;
-const int echoPin = 12;
+Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+
+// const int trigPin = 17;
+// const int echoPin = 12;
 
 const int trigPinFim = 2;
 const int echoPinFim = 13;
@@ -190,6 +192,12 @@ void setup() {
   pinMode(echoPin, INPUT);
   pinMode(trigPinFim, OUTPUT);
   pinMode(echoPinFim, INPUT);
+
+  if (!lox.begin()) {
+    Serial.println("ERRO: Falha ao inicializar o VL53L0X!");
+    Serial.println("Verifique as conexões (VIN, GND, SDA, SCL).");
+    while (1);  // Para o programa aqui se falhar
+  }
 }
 
 void loop() {}
@@ -395,21 +403,30 @@ bool leituraFim() {
 }
 
 float medirDistancia() {
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
+
+  VL53L0X_RangingMeasurementData_t measure;
+  
+  lox.rangingTest(&measure, false);
+    
+  return(measure.RangeMilliMeter / 10.0);
+  
+
+
+  // digitalWrite(trigPin, LOW);
+  // delayMicroseconds(2);
  
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
+  // digitalWrite(trigPin, HIGH);
+  // delayMicroseconds(10);
+  // digitalWrite(trigPin, LOW);
  
-  long duration = pulseIn(echoPin, HIGH, 30000);
+  // long duration = pulseIn(echoPin, HIGH, 30000);
  
-  if (duration == 0) {
-    return 999.0;
-  }
+  // if (duration == 0) {
+  //   return 999.0;
+  // }
  
-  float distanceCm = duration * 0.034 / 2.0;
-  return distanceCm;
+  // float distanceCm = duration * 0.034 / 2.0;
+  // return distanceCm;
 }
 
 void sensorDeCaixa() {
