@@ -6,6 +6,7 @@
 #include <Adafruit_SSD1306.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include "Adafruit_VL53L0X.h"
 
 const char* ssid = "arthu";
 const char* password = "12341234";
