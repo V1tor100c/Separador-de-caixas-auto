@@ -214,13 +214,13 @@ void levanteDE(){
 }
 
 void pegarCaixa(){
-
-  moveServoB(75);
-  moveServoE(95);
-  moveServoD(185);
-  moveServoE(60);
-  moveServoD(195);
+  moveServoB(35);
   moveServoG(155);
+  moveServoD(185);
+  moveServoE(95);
+  moveServoE(60);
+  moveServoD(190);
+  moveServoB(75);
   delay(500);
   moveServoG(205);
   
@@ -236,6 +236,12 @@ void levarEsteira(){
   moveServoG(180);
 }
 
+void estadoInit(){
+  moveServoB(40);
+  moveServoE(100);
+  moveServoD(150);
+  moveServoG(180);
+}
 
 
 void setup() {
@@ -253,14 +259,16 @@ void setup() {
 
   delay(10);
   // pegarCaixa();
+  estadoInit();
+  delay(2000);
 }
 void loop() {  
   // moveServoB(75);
 
   pegarCaixa();
   delay(500);
-  levarEsteira();
-  delay(500);
+  // levarEsteira();
+  // delay(500);
 
   while(1){
     delay(500);
