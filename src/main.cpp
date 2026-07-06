@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <ESP32Servo.h>
+#include <Adafruit_PWMServoDriver.h>
 #include <HCSR04.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -18,6 +18,19 @@ WebServer server(80);
 #define OLED_ADDR 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
+#define SERVOMIN  110
+#define SERVOMAX  410 
+
+uint8_t ServoGarra = 3; 
+uint8_t ServoDireito = 0; 
+uint8_t ServoEsquerdo = 1;
+uint8_t ServoBase = 2;
+
+uint8_t ultAngGarra = 180;
+uint8_t ultAngDireito = 180;
+uint8_t ultAngEsquerda = 90;
+uint8_t ultAngBase = 100;
+
 const int stepPin = 16;
 const int dirPin = 4;
 const int frequenciaMotor = 70;
@@ -33,9 +46,6 @@ const int pinServoBase =  15;   // baixo
 Servo servoGarra, servoDireita, servoEsquerda, servoBase;
 
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
-
-// const int trigPin = 17;
-// const int echoPin = 12;
 
 const int trigPinFim = 2;
 const int echoPinFim = 13;
@@ -105,12 +115,14 @@ void enviarPaginaWeb();
 void enviarDadosJSON();
 void tratarBotaoVirtualEmergencia();
 void tratarBotaoVirtualIniciar();
-void garraPegaCaixa();
-void basePegaCaixa();
-void levantaCaixa();
-void abaixaCaixa();
-void baseEsteira();
-void garraLargar();
+int converterAnguloParaPulso(int angulo);
+void moveServoG(int ang);
+void moveServoD(int ang);
+void moveServoE(int ang);
+void moveServoB(int ang);
+void levanteDE();
+void pegarCaixa();
+void levarEsteira();
 String obterNomeEstado(EstadosSistema estado);
 
 void IRAM_ATTR emergencia() {
@@ -486,65 +498,141 @@ void sensorDeCaixa() {
   Serial.println(tipo);
 }
 
+int converterAnguloParaPulso(int angulo) {
+  // Mapeia o valor do ângulo para o intervalo de pulsos do PCA9685
+  return map(angulo, 0, 180, SERVOMIN, SERVOMAX);
+}
 
-void garraPegaCaixa(){
-  for(int posDegrees = 180; posDegrees >= 130; posDegrees--) {
-    servoGarra.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+void moveServoG(int ang){
+  if(ang > ultAngGarra){
+    for(int angulo = ultAngGarra; angulo <= ang; angulo++) {
+      pwm.setPWM(ServoGarra, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngGarra = angulo;
+    }
   }
-
-  for(int posDegrees = 130; posDegrees <= 180; posDegrees++) {
-    servoGarra.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+  else if(ang < ultAngGarra){
+    for(int angulo = ultAngGarra; angulo >= ang; angulo--) {
+      pwm.setPWM(ServoGarra, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngGarra = angulo;
+    }
+  }
+  else{
+    return;
   }
 }
 
-void basePegaCaixa(){
-  for(int posDegrees = 100; posDegrees >= 60; posDegrees--) {
-    servoDireita.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+void moveServoD(int ang){
+  if(ang > ultAngDireito){
+    for(int angulo = ultAngDireito; angulo <= ang; angulo++) {
+      pwm.setPWM(ServoDireito, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngDireito = angulo;
+    }
   }
-
-  servoBase.write(65);
-  delay(1000);
-}
-
-void levantaCaixa(){
-  for(int posDegrees = 60; posDegrees <= 160; posDegrees++) {
-    servoDireita.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+  else if(ang < ultAngDireito){
+    for(int angulo = ultAngDireito; angulo >= ang; angulo--) {
+      pwm.setPWM(ServoDireito, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngDireito = angulo;
+    }
   }
-
-  for(int posDegrees = 100; posDegrees <= 170; posDegrees++) {
-    servoEsquerda.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+  else{
+    return;
   }
 }
 
-void abaixaCaixa(){
-  servoDireita.write(120);
-  Serial.println("Mexe o DIREIRO");
-  delay(1000);
-  servoEsquerda.write(150);
-  Serial.println("Mexe o ESQUERDO");
-  delay(1000);
-}
-
-void baseEsteira(){
-  for(int posDegrees = 65; posDegrees <= 130; posDegrees++) {
-    servoBase.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+void moveServoE(int ang){
+  if(ang > ultAngEsquerda){
+    for(int angulo = ultAngEsquerda; angulo <= ang; angulo++) {
+      pwm.setPWM(ServoEsquerdo, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngEsquerda = angulo;
+    }
+  }
+  else if(ang < ultAngEsquerda){
+    for(int angulo = ultAngEsquerda; angulo >= ang; angulo--) {
+      pwm.setPWM(ServoEsquerdo, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngEsquerda = angulo;
+    }
+  }
+  else{
+    return;
   }
 }
 
-void garraLargar(){
-  servoGarra.write(130);
+void moveServoB(int ang){
+  if(ang > ultAngBase){
+    for(int angulo = ultAngBase; angulo <= ang; angulo++) {
+      pwm.setPWM(ServoBase, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngBase = angulo;
+    }
+  }
+  else if(ang < ultAngBase){
+    for(int angulo = ultAngBase; angulo >= ang; angulo--) {
+      pwm.setPWM(ServoBase, 0, converterAnguloParaPulso(angulo));
+      Serial.println(angulo);
+      delay(20);
+      ultAngBase = angulo;
+    }
+  }
+  else{
+    return;
+  }
+}
+
+void levanteDE(){
+  int angulod = 195;
+  for(float angulo = ultAngEsquerda; angulo <= 170; angulo += 3) {
+      pwm.setPWM(ServoEsquerdo, 0, converterAnguloParaPulso(angulo));
+      pwm.setPWM(ServoDireito, 0, converterAnguloParaPulso(angulod));
+      Serial.print("levata: ");
+      Serial.println(angulo);
+      angulod -= 3;
+      delay(20);
+      ultAngEsquerda = angulo;
+      ultAngDireito = angulod;
+    }
+}
+
+void pegarCaixa(){
+  moveServoB(35);
+  moveServoG(155);
+  moveServoD(185);
+  moveServoE(95);
+  moveServoE(60);
+  moveServoD(190);
+  moveServoB(75);
+  delay(500);
+  moveServoG(205);
+  
+}
+
+void levarEsteira(){
+
+  moveServoE(70);
+  levanteDE();
+  moveServoB(155);
+  moveServoD(140);
+  moveServoE(150);
+  moveServoG(180);
+}
+
+void estadoInit(){
+  moveServoB(40);
+  moveServoE(100);
+  moveServoD(150);
+  moveServoG(180);
 }
 
 void baseP(){
