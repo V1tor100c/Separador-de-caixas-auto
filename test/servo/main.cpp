@@ -18,7 +18,8 @@ uint8_t ServoBase = 2;
 uint8_t ultAngGarra = 180;
 uint8_t ultAngDireito = 180;
 uint8_t ultAngEsquerda = 90;
-uint8_t ultAngBase = 20;
+uint8_t ultAngBase = 100;
+
 
 // Função auxiliar para converter o ângulo (0 a 180) para o valor de pulso PWM
 int converterAnguloParaPulso(int angulo) {
@@ -71,11 +72,7 @@ void moveServoD(int ang){
 }
 
 void moveServoE(int ang){
-  // Serial.println("ServoEsquerdo");
-  // Serial.print("ANG: ");
-  // Serial.print(ang);
-  // Serial.print(", ULT ANG: ");
-  // Serial.println(ultAngEsquerda);
+
   if(ang > ultAngEsquerda){
     for(int angulo = ultAngEsquerda; angulo <= ang; angulo++) {
       pwm.setPWM(ServoEsquerdo, 0, converterAnguloParaPulso(angulo));
@@ -135,11 +132,13 @@ void levanteDE(){
 
 void pegarCaixa(){
 
-  moveServoB(75);
+  moveServoB(35);
   moveServoE(95);
   moveServoD(185);
   moveServoE(60);
   moveServoD(195);
+  moveServoB(75);
+  moveServoD(205);
   moveServoG(155);
   delay(500);
   moveServoG(205);
@@ -147,19 +146,19 @@ void pegarCaixa(){
 }
 
 void levarEsteira(){
-
   moveServoE(70);
   levanteDE();
   moveServoB(155);
   moveServoD(140);
   moveServoE(150);
   moveServoG(180);
+  moveServoD(100);
 }
 
 void servoInit(){
-  moveServoB(40);
-  moveServoG(180);
-  moveServoE(100);
+  moveServoB(30);
+  moveServoG(160);
+  moveServoE(60);
   moveServoD(150);
 }
 
@@ -178,15 +177,13 @@ void setup() {
   pwm.setPWMFreq(50);
 
   delay(10);
-  // pegarCaixa();
 }
 void loop() {  
   // moveServoB(75);
-  // servoInit();
-  Serial.println("Pegando caixa...");
+  servoInit();
   pegarCaixa();
-  // delay(500);
-  // levarEsteira();
+  delay(500);
+  levarEsteira();
   // delay(500);
 
   while(1){

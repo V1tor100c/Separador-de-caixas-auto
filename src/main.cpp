@@ -8,8 +8,11 @@
 #include <WebServer.h>
 #include "Adafruit_VL53L0X.h"
 
-const char* ssid = "arthu";
-const char* password = "12341234";
+// const char* ssid = "arthu";
+// const char* password = "12341234";
+
+const char* ssid = "POCO F7";
+const char* password = "macrocontrole";
 
 WebServer server(80);
 
@@ -17,6 +20,8 @@ WebServer server(80);
 #define SCREEN_HEIGHT 64
 #define OLED_ADDR 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 #define SERVOMIN  110
 #define SERVOMAX  410 
@@ -33,19 +38,13 @@ uint8_t ultAngBase = 100;
 
 const int stepPin = 16;
 const int dirPin = 4;
+const int enablePin = 15;
 const int frequenciaMotor = 70;
 
 const int iri = 14;
 bool estadoIR = false;
 
-const int pinServoGarra = 32;   // garra
-const int pinServoDireita = 8;  // direita
-const int pinServoEsquerda = 3; // esquerda
-const int pinServoBase =  15;   // baixo
-
-Servo servoGarra, servoDireita, servoEsquerda, servoBase;
-
-Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+// Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 
 const int trigPinFim = 2;
 const int echoPinFim = 13;
@@ -95,6 +94,7 @@ char tamanhoAtual;
 volatile bool flagMedirTemperatura = false;
 
 SemaphoreHandle_t mutexDados;
+SemaphoreHandle_t mutexI2C; 
 hw_timer_t *timerTemperatura = NULL;
 
 void loop0(void *parameter);
@@ -105,10 +105,6 @@ void desligar_esteira();
 bool leituraFim();
 float medirDistancia();
 void sensorDeCaixa();
-void pegarCaixa();
-void colocarCaixaP();
-void colocarCaixaM();
-void colocarCaixaG();
 void zeraTudo();
 void setCorRGB(int r, int g, int b);
 void enviarPaginaWeb();
@@ -122,7 +118,12 @@ void moveServoE(int ang);
 void moveServoB(int ang);
 void levanteDE();
 void pegarCaixa();
+void devolverCaixa();
 void levarEsteira();
+void servoInit();
+void colocarCaixaP();
+void colocarCaixaM();
+void colocarCaixaG();
 String obterNomeEstado(EstadosSistema estado);
 
 void IRAM_ATTR emergencia() {
@@ -142,6 +143,7 @@ void setup() {
   Wire.begin(21, 22);
 
   mutexDados = xSemaphoreCreateMutex();
+  mutexI2C = xSemaphoreCreateMutex(); 
 
   pinMode(pinLedR, OUTPUT);
   pinMode(pinLedG, OUTPUT);
@@ -187,29 +189,28 @@ void setup() {
 
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
+  pinMode(enablePin, OUTPUT);
   digitalWrite(stepPin, LOW);
   digitalWrite(dirPin, LOW);
+  digitalWrite(enablePin, LOW);
   ledcSetup(0, frequenciaMotor, 8);
   ledcAttachPin(stepPin, 0);
 
-  servoGarra.attach(pinServoGarra);
-  servoDireita.attach(pinServoDireita);
-  servoEsquerda.attach(pinServoEsquerda);
-  servoBase.attach(pinServoBase);
-
-  xTaskCreatePinnedToCore(loop0, "Task0", 10000, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(loop1, "Task1", 10000, NULL, 1, NULL, 1);
-
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
   pinMode(trigPinFim, OUTPUT);
   pinMode(echoPinFim, INPUT);
 
-  if (!lox.begin()) {
-    Serial.println("ERRO: Falha ao inicializar o VL53L0X!");
-    Serial.println("Verifique as conexões (VIN, GND, SDA, SCL).");
-    while (1);  // Para o programa aqui se falhar
-  }
+  // if (!lox.begin()) {
+  //   Serial.println("ERRO: Falha ao inicializar o VL53L0X!");
+  //   Serial.println("Verifique as conexões (VIN, GND, SDA, SCL).");
+  //   while (1);
+  // }
+
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(50);
+
+  xTaskCreatePinnedToCore(loop0, "Task0", 10000, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(loop1, "Task1", 10000, NULL, 1, NULL, 1);
 }
 
 void loop() {}
@@ -217,6 +218,23 @@ void loop() {}
 void loop0(void *parameter) {
   Serial.println("CORE 0 INICIADO!");
   while (true) {
+    // Serial.println(leituraFim() );
+    // delay(500); 
+
+
+
+    // servoInit();
+    // pegarCaixa();
+    // delay(500);
+    // levarEsteira();
+
+    // while(1){
+    //   delay(500);
+    // }
+
+
+
+
     if (flagMedirTemperatura) {
       flagMedirTemperatura = false;
       int lecturaADC = analogRead(LM35);
@@ -224,19 +242,13 @@ void loop0(void *parameter) {
      
       xSemaphoreTake(mutexDados, portMAX_DELAY);
       temperaturaAtual = temp;
-      
-      // CORREÇÃO: Atualiza dinamicamente o estado da emergência por temperatura
-      if (temperaturaAtual > 50.0) {
-        emergenciaTemperatura = true;
-      } else if (temperaturaAtual < 48.0) {
-        emergenciaTemperatura = false;
-      }
+      if (temperaturaAtual > 20.0) estadoEmergencia = true;
       xSemaphoreGive(mutexDados);
     }
 
-    // CORREÇÃO: O sistema estará em emergência se o botão OR a temperatura exigirem
     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    bool emEmergencia = estadoEmergencia || emergenciaTemperatura;
+    bool emEmergencia = estadoEmergencia;
+    float tempCheck = temperaturaAtual;
     xSemaphoreGive(mutexDados);
 
     if (emEmergencia && estadoAtual != EM_EMERGENCIA) {
@@ -245,19 +257,26 @@ void loop0(void *parameter) {
       estadoAtual = EM_EMERGENCIA;
       xSemaphoreGive(mutexDados);
     }
-    // CORREÇÃO: Se nenhuma das condições de emergência for real, sai automaticamente
     else if (!emEmergencia && estadoAtual == EM_EMERGENCIA) {
-      Serial.println("SISTEMA ESFRIOU / BOTAO LIBERADO: SAINDO DA EMERGENCIA!");
-      xSemaphoreTake(mutexDados, portMAX_DELAY);
-      estadoAtual = AGUARDANDO_START;
-      xSemaphoreGive(mutexDados);
-      digitalWrite(buzzer, LOW);
+      if (tempCheck < 9.0) {
+        Serial.println("SAINDO DA EMERGENCIA!");
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoAtual = AGUARDANDO_START;
+        xSemaphoreGive(mutexDados);
+        digitalWrite(buzzer, LOW);
+      } else {
+        Serial.println("MUITO QUENTE! Manter na emergencia.");
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoEmergencia = true;
+        xSemaphoreGive(mutexDados);
+      }
     }
 
     switch (estadoAtual) {
       case AGUARDANDO_START:
         digitalWrite(buzzer, LOW);
         desligar_esteira();
+        servoInit();
         if (digitalRead(botaoIniciar) == HIGH) {
           xSemaphoreTake(mutexDados, portMAX_DELAY);
           estadoAtual = MANIPULADOR1_PEGA_CAIXA;
@@ -269,6 +288,8 @@ void loop0(void *parameter) {
       case MANIPULADOR1_PEGA_CAIXA:
         Serial.println("MANIPULADOR 1 PEGA CAIXA!");
         pegarCaixa();
+        levarEsteira();
+        devolverCaixa();
         xSemaphoreTake(mutexDados, portMAX_DELAY);
         estadoAtual = ESTEIRA_TRANSPORTANDO;
         xSemaphoreGive(mutexDados);
@@ -331,6 +352,7 @@ void loop0(void *parameter) {
     }
    
     vTaskDelay(pdMS_TO_TICKS(50));
+
   }
 }
 
@@ -358,6 +380,8 @@ void loop1(void *parameter) {
       setCorRGB(0, 255, 0);    
     }
 
+    // CORREÇÃO: Protegendo a atualização do Display I2C contra concorrência
+    xSemaphoreTake(mutexI2C, portMAX_DELAY);
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
@@ -375,12 +399,15 @@ void loop1(void *parameter) {
     display.print(" G:"); display.print(gLocal);
 
     display.display();
+    xSemaphoreGive(mutexI2C);
+    
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
 
 void ligar_esteira() {
   digitalWrite(dirPin, HIGH);
+  digitalWrite(enablePin, HIGH);
   ledcWrite(0, 128);
 }
 
@@ -390,10 +417,11 @@ void voltar_esteira() {
 }
 
 void desligar_esteira() {
+  digitalWrite(enablePin, HIGH);
   ledcWrite(0, 0);
 }
 
-bool leituraFim() {
+bool lecturaFim() {
   digitalWrite(trigPinFim, LOW);
   delayMicroseconds(2);
  
@@ -415,30 +443,14 @@ bool leituraFim() {
 }
 
 float medirDistancia() {
-
-  VL53L0X_RangingMeasurementData_t measure;
+  // VL53L0X_RangingMeasurementData_t measure;
   
-  lox.rangingTest(&measure, false);
+  // xSemaphoreTake(mutexI2C, portMAX_DELAY);
+  // lox.rangingTest(&measure, false);
+  // xSemaphoreGive(mutexI2C);
     
-  return(measure.RangeMilliMeter / 10.0);
-  
-
-
-  // digitalWrite(trigPin, LOW);
-  // delayMicroseconds(2);
- 
-  // digitalWrite(trigPin, HIGH);
-  // delayMicroseconds(10);
-  // digitalWrite(trigPin, LOW);
- 
-  // long duration = pulseIn(echoPin, HIGH, 30000);
- 
-  // if (duration == 0) {
-  //   return 999.0;
-  // }
- 
-  // float distanceCm = duration * 0.034 / 2.0;
-  // return distanceCm;
+  // return(measure.RangeMilliMeter / 10.0);
+  return 10;
 }
 
 void sensorDeCaixa() {
@@ -499,14 +511,16 @@ void sensorDeCaixa() {
 }
 
 int converterAnguloParaPulso(int angulo) {
-  // Mapeia o valor do ângulo para o intervalo de pulsos do PCA9685
   return map(angulo, 0, 180, SERVOMIN, SERVOMAX);
 }
 
 void moveServoG(int ang){
   if(ang > ultAngGarra){
     for(int angulo = ultAngGarra; angulo <= ang; angulo++) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoGarra, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngGarra = angulo;
@@ -514,7 +528,10 @@ void moveServoG(int ang){
   }
   else if(ang < ultAngGarra){
     for(int angulo = ultAngGarra; angulo >= ang; angulo--) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoGarra, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngGarra = angulo;
@@ -528,7 +545,10 @@ void moveServoG(int ang){
 void moveServoD(int ang){
   if(ang > ultAngDireito){
     for(int angulo = ultAngDireito; angulo <= ang; angulo++) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoDireito, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngDireito = angulo;
@@ -536,7 +556,10 @@ void moveServoD(int ang){
   }
   else if(ang < ultAngDireito){
     for(int angulo = ultAngDireito; angulo >= ang; angulo--) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoDireito, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngDireito = angulo;
@@ -550,7 +573,10 @@ void moveServoD(int ang){
 void moveServoE(int ang){
   if(ang > ultAngEsquerda){
     for(int angulo = ultAngEsquerda; angulo <= ang; angulo++) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoEsquerdo, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngEsquerda = angulo;
@@ -558,7 +584,10 @@ void moveServoE(int ang){
   }
   else if(ang < ultAngEsquerda){
     for(int angulo = ultAngEsquerda; angulo >= ang; angulo--) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoEsquerdo, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngEsquerda = angulo;
@@ -572,7 +601,10 @@ void moveServoE(int ang){
 void moveServoB(int ang){
   if(ang > ultAngBase){
     for(int angulo = ultAngBase; angulo <= ang; angulo++) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoBase, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngBase = angulo;
@@ -580,7 +612,10 @@ void moveServoB(int ang){
   }
   else if(ang < ultAngBase){
     for(int angulo = ultAngBase; angulo >= ang; angulo--) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoBase, 0, converterAnguloParaPulso(angulo));
+      xSemaphoreGive(mutexI2C);
       Serial.println(angulo);
       delay(20);
       ultAngBase = angulo;
@@ -594,8 +629,11 @@ void moveServoB(int ang){
 void levanteDE(){
   int angulod = 195;
   for(float angulo = ultAngEsquerda; angulo <= 170; angulo += 3) {
+      // CORREÇÃO: Protegendo a escrita I2C no driver de servo
+      xSemaphoreTake(mutexI2C, portMAX_DELAY);
       pwm.setPWM(ServoEsquerdo, 0, converterAnguloParaPulso(angulo));
       pwm.setPWM(ServoDireito, 0, converterAnguloParaPulso(angulod));
+      xSemaphoreGive(mutexI2C);
       Serial.print("levata: ");
       Serial.println(angulo);
       angulod -= 3;
@@ -605,120 +643,72 @@ void levanteDE(){
     }
 }
 
+void servoInit(){
+  moveServoB(30);
+  moveServoG(160);
+  moveServoE(60);
+  moveServoD(150);
+}
+
 void pegarCaixa(){
   moveServoB(35);
-  moveServoG(155);
-  moveServoD(185);
   moveServoE(95);
+  moveServoD(185);
   moveServoE(60);
-  moveServoD(190);
+  moveServoD(195);
   moveServoB(75);
+  moveServoD(205);
+  moveServoG(155);
   delay(500);
   moveServoG(205);
-  
+}
+
+void devolverCaixa(){
+  // moveServoG(155);
+  delay(500);
+  // moveServoG(155);
+  moveServoD(140);
+  // moveServoB(75);
+  // moveServoD(195);
+  // moveServoE(60);
+  // moveServoD(185);
+  // moveServoE(95);
+  // moveServoB(35);
 }
 
 void levarEsteira(){
-
   moveServoE(70);
   levanteDE();
-  moveServoB(155);
+  moveServoB(150);
   moveServoD(140);
   moveServoE(150);
   moveServoG(180);
+  moveServoD(100);
 }
 
-void estadoInit(){
-  moveServoB(40);
-  moveServoE(100);
-  moveServoD(150);
-  moveServoG(180);
-}
+void colocarCaixaP() {}
+void colocarCaixaM() {}
+void colocarCaixaG() {}
 
-void baseP(){
-  for(int posDegrees = 130; posDegrees <= 150; posDegrees++) {
-    servoBase.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+bool leituraFim() {
+  digitalWrite(trigPinFim, LOW);
+  delayMicroseconds(2);
+ 
+  digitalWrite(trigPinFim, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPinFim, LOW);
+ 
+  float duration = pulseIn(echoPinFim, HIGH, 30000);
+  if (duration == 0) return false;
+
+  float distanceCm = duration * 0.034 / 2.0;
+
+  if (distanceCm > 0 && distanceCm < 5){
+    return true;
   }
-}
-
-void baseM(){
-  for(int posDegrees = 130; posDegrees <= 160; posDegrees++) {
-    servoBase.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
+  else{
+    return false;
   }
-}
-
-void baseG(){
-  for(int posDegrees = 130; posDegrees <= 170; posDegrees++) {
-    servoBase.write(posDegrees);
-    Serial.println(posDegrees);
-    delay(20);
-  }
-}
-
-void pegarCaixa() {
-  basePegaCaixa();
-  delay(1000);
-
-  abaixaCaixa();
-  delay(1000);
-
-  garraPegaCaixa();
-  delay(1000);
-
-  levantaCaixa();
-  delay(1000);
-
-  baseEsteira();
-  delay(1000);
-
-  garraLargar();
-  delay(1000);
-}
-
-void colocarCaixaP() {
-  levantaCaixa();
-  delay(1000);
-
-  baseEsteira();
-  delay(1000);
-
-  garraPegaCaixa();
-  delay(1000);
-
-  baseP();
-  delay(1000);
-}
-
-void colocarCaixaM() {
-  levantaCaixa();
-  delay(1000);
-
-  baseEsteira();
-  delay(1000);
-
-  garraPegaCaixa();
-  delay(1000);
-
-  baseM();
-  delay(1000);
-}
-
-void colocarCaixaG() {
-  levantaCaixa();
-  delay(1000);
-
-  baseEsteira();
-  delay(1000);
-
-  garraPegaCaixa();
-  delay(1000);
-
-  baseG();
-  delay(1000);
 }
 
 void zeraTudo() {
@@ -726,7 +716,7 @@ void zeraTudo() {
   xSemaphoreTake(mutexDados, portMAX_DELAY);
   tamanhoCaixaMedida = '-';
   xSemaphoreGive(mutexDados);
-  servoGarra.write(27); servoDireita.write(25); servoEsquerda.write(33); servoBase.write(32);
+  servoInit();
 }
 
 void setCorRGB(int r, int g, int b) {
@@ -865,7 +855,6 @@ void tratarBotaoVirtualEmergencia() {
 
 void tratarBotaoVirtualIniciar() {
   xSemaphoreTake(mutexDados, portMAX_DELAY);
-  // CORREÇÃO: Bloqueia o início apenas se qualquer uma das duas emergências estiver ativa
   if (estadoAtual == AGUARDANDO_START && !estadoEmergencia && !emergenciaTemperatura) {
     estadoAtual = MANIPULADOR1_PEGA_CAIXA;
     Serial.println("Comando INICIAR recebido via WEB!");
