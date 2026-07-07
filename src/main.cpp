@@ -226,151 +226,151 @@ void loop() {}
 void loop0(void *parameter) {
   Serial.println("CORE 0 INICIADO!");
   while (true) {
-    pegarCaixa();
-    levarEsteira();
-    colocarCaixaG();
-    while(1){
-      delay(1000);
+    // pegarCaixa();
+    // levarEsteira();
+    // colocarCaixaM();
+    // while(1){
+    //   delay(1000);
+    // }
+
+    if (flagMedirTemperatura) {
+      flagMedirTemperatura = false;
+      int lecturaADC = analogRead(LM35);
+      float temp = ((lecturaADC / 4095.0) * 3300.0) / 10.0;
+     
+      xSemaphoreTake(mutexDados, portMAX_DELAY);
+      temperaturaAtual = temp;
+      if (temperaturaAtual > 80.0) estadoEmergencia = true;
+      xSemaphoreGive(mutexDados);
     }
 
-    // if (flagMedirTemperatura) {
-    //   flagMedirTemperatura = false;
-    //   int lecturaADC = analogRead(LM35);
-    //   float temp = ((lecturaADC / 4095.0) * 3300.0) / 10.0;
-     
-    //   xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //   temperaturaAtual = temp;
-    //   if (temperaturaAtual > 80.0) estadoEmergencia = true;
-    //   xSemaphoreGive(mutexDados);
-    // }
+    xSemaphoreTake(mutexDados, portMAX_DELAY);
+    bool emEmergencia = estadoEmergencia;
+    float tempCheck = temperaturaAtual;
+    xSemaphoreGive(mutexDados);
 
-    // xSemaphoreTake(mutexDados, portMAX_DELAY);
-    // bool emEmergencia = estadoEmergencia;
-    // float tempCheck = temperaturaAtual;
-    // xSemaphoreGive(mutexDados);
+    if (emEmergencia && estadoAtual != EM_EMERGENCIA) {
+      Serial.println("ENTRANDO EM EMERGENCIA!");
+      xSemaphoreTake(mutexDados, portMAX_DELAY);
+      estadoAtual = EM_EMERGENCIA;
+      xSemaphoreGive(mutexDados);
+    }
+    else if (!emEmergencia && estadoAtual == EM_EMERGENCIA) {
+      if (tempCheck < 20.0) {
+        Serial.println("SAINDO DA EMERGENCIA!");
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoAtual = AGUARDANDO_START;
+        xSemaphoreGive(mutexDados);
+        digitalWrite(buzzer, LOW);
+      } else {
+        Serial.println("MUITO QUENTE! Manter na emergencia.");
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoEmergencia = true;
+        xSemaphoreGive(mutexDados);
+      }
+    }
 
-    // if (emEmergencia && estadoAtual != EM_EMERGENCIA) {
-    //   Serial.println("ENTRANDO EM EMERGENCIA!");
-    //   xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //   estadoAtual = EM_EMERGENCIA;
-    //   xSemaphoreGive(mutexDados);
-    // }
-    // else if (!emEmergencia && estadoAtual == EM_EMERGENCIA) {
-    //   if (tempCheck < 20.0) {
-    //     Serial.println("SAINDO DA EMERGENCIA!");
-    //     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //     estadoAtual = AGUARDANDO_START;
-    //     xSemaphoreGive(mutexDados);
-    //     digitalWrite(buzzer, LOW);
-    //   } else {
-    //     Serial.println("MUITO QUENTE! Manter na emergencia.");
-    //     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //     estadoEmergencia = true;
-    //     xSemaphoreGive(mutexDados);
-    //   }
-    // }
+    switch (estadoAtual) {
+      case AGUARDANDO_START:
+        digitalWrite(buzzer, LOW);
+        desligar_esteira();
+        servoInit();
+        if (digitalRead(botaoIniciar) == HIGH) {
+          xSemaphoreTake(mutexDados, portMAX_DELAY);
+          estadoAtual = MANIPULADOR1_PEGA_CAIXA;
+          xSemaphoreGive(mutexDados);
+          while(digitalRead(botaoIniciar) == HIGH) { vTaskDelay(pdMS_TO_TICKS(10)); }
+        }
+        break;
 
-    // switch (estadoAtual) {
-    //   case AGUARDANDO_START:
-    //     digitalWrite(buzzer, LOW);
-    //     desligar_esteira();
-    //     servoInit();
-    //     if (digitalRead(botaoIniciar) == HIGH) {
-    //       xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //       estadoAtual = MANIPULADOR1_PEGA_CAIXA;
-    //       xSemaphoreGive(mutexDados);
-    //       while(digitalRead(botaoIniciar) == HIGH) { vTaskDelay(pdMS_TO_TICKS(10)); }
-    //     }
-    //     break;
+      case MANIPULADOR1_PEGA_CAIXA:
 
-    //   case MANIPULADOR1_PEGA_CAIXA:
+        Serial.println("MANIPULADOR 1 PEGA CAIXA!");
+        pegarCaixa();
+        levarEsteira();
+        tempoCaixaAnterior = millis();
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoAtual = ESTEIRA_TRANSPORTANDO;
+        xSemaphoreGive(mutexDados);
+        break;
 
-    //     Serial.println("MANIPULADOR 1 PEGA CAIXA!");
-    //     pegarCaixa();
-    //     levarEsteira();
-    //     tempoCaixaAnterior = millis();
-    //     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //     estadoAtual = ESTEIRA_TRANSPORTANDO;
-    //     xSemaphoreGive(mutexDados);
-    //     break;
-
-    //     case ESTEIRA_TRANSPORTANDO:
-    //     Serial.println("ESTEIRA TRANSPORTANDO!"); 
-    //     ligar_esteira(); // Mantém a esteira ligada rodando em background
+        case ESTEIRA_TRANSPORTANDO:
+        Serial.println("ESTEIRA TRANSPORTANDO!"); 
+        ligar_esteira(); // Mantém a esteira ligada rodando em background
         
-    //     if (millis() - tempoCaixaAnterior < intervaloUmSegundo) {
-    //       break; 
-    //     }
+        if (millis() - tempoCaixaAnterior < intervaloUmSegundo) {
+          break; 
+        }
 
-    //     desligar_esteira();
-    //     sensorDeCaixa();
-    //       for(int i = 0; i < 5; i++){
-    //         medirDistancia();
-    //         delay(100);
-    //       }
-    //       sensorDeCaixa();
+        desligar_esteira();
+        sensorDeCaixa();
+          for(int i = 0; i < 5; i++){
+            medirDistancia();
+            delay(100);
+          }
+          sensorDeCaixa();
        
-    //     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //     tamanhoAtual = tamanhoCaixaMedida;
-    //     xSemaphoreGive(mutexDados);
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        tamanhoAtual = tamanhoCaixaMedida;
+        xSemaphoreGive(mutexDados);
 
-    //     if (tamanhoAtual != '-') {
-    //       xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //       estadoAtual = AGUARDANDO_FIM_ESTEIRA;
-    //       xSemaphoreGive(mutexDados);
-    //     }
-    //     tempoCaixaAnterior = millis();
-    //     break;
+        if (tamanhoAtual != '-') {
+          xSemaphoreTake(mutexDados, portMAX_DELAY);
+          estadoAtual = AGUARDANDO_FIM_ESTEIRA;
+          xSemaphoreGive(mutexDados);
+        }
+        tempoCaixaAnterior = millis();
+        break;
 
-    //   case AGUARDANDO_FIM_ESTEIRA:
+      case AGUARDANDO_FIM_ESTEIRA:
 
-    //     Serial.println("AGUARDANDO FIM ESTEIRA!");
-    //     voltar_esteira();
+        Serial.println("AGUARDANDO FIM ESTEIRA!");
+        voltar_esteira();
 
-    //     if (millis() - tempoCaixaAnterior < intervaloUmSegundo) {
-    //       break; 
-    //     }
+        if (millis() - tempoCaixaAnterior < intervaloUmSegundo) {
+          break; 
+        }
 
-    //       desligar_esteira();
-    //       xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //       estadoAtual = MANIPULADOR2_SEPARA_CAIXA;
-    //       xSemaphoreGive(mutexDados);
-    //     break;
+          desligar_esteira();
+          xSemaphoreTake(mutexDados, portMAX_DELAY);
+          estadoAtual = MANIPULADOR2_SEPARA_CAIXA;
+          xSemaphoreGive(mutexDados);
+        break;
 
-    //   case MANIPULADOR2_SEPARA_CAIXA:
+      case MANIPULADOR2_SEPARA_CAIXA:
 
-    //     Serial.println("MANIPULADOR 2 SEPARA CAIXA!");
-    //     desligar_esteira();
-    //     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //     tamanho = tamanhoCaixaMedida;
-    //     xSemaphoreGive(mutexDados);
+        Serial.println("MANIPULADOR 2 SEPARA CAIXA!");
+        desligar_esteira();
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        tamanho = tamanhoCaixaMedida;
+        xSemaphoreGive(mutexDados);
 
-    //     if (tamanho == 'P') colocarCaixaP();
-    //     else if (tamanho == 'M') colocarCaixaM();
-    //     else if (tamanho == 'G') colocarCaixaG();
+        if (tamanho == 'P') colocarCaixaP();
+        else if (tamanho == 'M') colocarCaixaM();
+        else if (tamanho == 'G') colocarCaixaG();
        
-    //     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //     estadoAtual = RESETANDO_MAQUINA;
-    //     xSemaphoreGive(mutexDados);
-    //     break;
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoAtual = RESETANDO_MAQUINA;
+        xSemaphoreGive(mutexDados);
+        break;
 
-    //   case RESETANDO_MAQUINA:
+      case RESETANDO_MAQUINA:
 
-    //     Serial.println("RESETANDO MAQUINA!");
-    //     zeraTudo();
-    //     xSemaphoreTake(mutexDados, portMAX_DELAY);
-    //     estadoAtual = AGUARDANDO_START;
-    //     xSemaphoreGive(mutexDados);
-    //     break;
+        Serial.println("RESETANDO MAQUINA!");
+        zeraTudo();
+        xSemaphoreTake(mutexDados, portMAX_DELAY);
+        estadoAtual = AGUARDANDO_START;
+        xSemaphoreGive(mutexDados);
+        break;
 
-    //   case EM_EMERGENCIA:
+      case EM_EMERGENCIA:
 
-    //     desligar_esteira();
-    //     digitalWrite(buzzer, HIGH);
-    //     break;
-    // }
+        desligar_esteira();
+        digitalWrite(buzzer, HIGH);
+        break;
+    }
    
-    // vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(50));
 
   }
 }
@@ -717,37 +717,27 @@ void levarEsteira(){
 }
 
 void colocarCaixaP() {
-  // moveServoG(155);
-  // moveServoG(180);
-  // moveServoD(140);
-  moveServoE(145);
+  moveServoE(147);
   moveServoG(205);
   moveServoD(70);
-  moveServoB(220);
+  moveServoB(30);
   moveServoD(150);
+  // moveServoE(95);
   moveServoG(160);
-
-  // moveServoD(185);
-  // moveServoE(120);
-  // moveServoB(35);
 }
 
 void colocarCaixaM() {
-  // moveServoG(155);
-  // moveServoG(180);
-  // moveServoD(140);
-  moveServoE(145);
+  moveServoE(147);
   moveServoG(205);
   moveServoD(70);
-  moveServoB(210);
+  moveServoB(100);
   moveServoD(150);
-  // moveServoD(185);
   // moveServoE(95);
-  // moveServoB(35);
+  moveServoG(160);
 }
 
 void colocarCaixaG() {
-  moveServoE(145);
+  moveServoE(147);
   moveServoG(205);
   moveServoD(70);
   moveServoB(220);
