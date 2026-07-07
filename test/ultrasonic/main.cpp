@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
 // Definição dos pinos que você informou
-const int trigPin = 19;
+const int trigPin = 2;
 const int echoPin = 13;
 
 // Variáveis para armazenar a duração do pulso e a distância calculada
